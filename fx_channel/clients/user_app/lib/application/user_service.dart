@@ -59,6 +59,7 @@ class CharacterView {
     required this.name,
     required this.rarity,
     required this.skillIds,
+    required this.copies,
   });
 
   factory CharacterView.fromJson(Map<String, dynamic> json) {
@@ -69,6 +70,7 @@ class CharacterView {
       skillIds: (json['skill_ids'] as List<dynamic>)
           .map((value) => value.toString())
           .toList(growable: false),
+      copies: (json['copies'] as num?)?.toInt() ?? 1,
     );
   }
 
@@ -76,6 +78,59 @@ class CharacterView {
   final String name;
   final String rarity;
   final List<String> skillIds;
+  final int copies;
+}
+
+class GachaEntryView {
+  const GachaEntryView({
+    required this.characterId,
+    required this.name,
+    required this.rarity,
+    required this.probability,
+  });
+
+  factory GachaEntryView.fromJson(Map<String, dynamic> json) {
+    return GachaEntryView(
+      characterId: json['character_id'] as String,
+      name: json['name'] as String,
+      rarity: json['rarity'] as String,
+      probability: (json['probability'] as num).toDouble(),
+    );
+  }
+
+  final String characterId;
+  final String name;
+  final String rarity;
+  final double probability;
+}
+
+class GachaPoolView {
+  const GachaPoolView({
+    required this.id,
+    required this.name,
+    required this.currency,
+    required this.cost,
+    required this.entries,
+  });
+
+  factory GachaPoolView.fromJson(Map<String, dynamic> json) {
+    return GachaPoolView(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      currency: json['currency'] as String,
+      cost: (json['cost'] as num).toInt(),
+      entries: (json['entries'] as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map(GachaEntryView.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  final String id;
+  final String name;
+  final String currency;
+  final int cost;
+  final List<GachaEntryView> entries;
 }
 
 class HomeView {
@@ -89,6 +144,8 @@ class HomeView {
     required this.quotes,
     required this.positions,
     required this.characters,
+    required this.wallet,
+    required this.gachaPools,
   });
 
   final String playerId;
@@ -100,6 +157,8 @@ class HomeView {
   final List<MarketQuote> quotes;
   final List<PositionView> positions;
   final List<CharacterView> characters;
+  final Map<String, int> wallet;
+  final List<GachaPoolView> gachaPools;
 }
 
 class ActionResult {
@@ -161,6 +220,21 @@ class UserService {
       playerId: playerId,
       action: 'close_position',
       payload: {'position_id': positionId},
+    );
+  }
+
+  Future<ActionResult> drawGacha({
+    required String playerId,
+    required String gachaId,
+    required int count,
+  }) {
+    return _gateway.postAction(
+      playerId: playerId,
+      action: 'draw_gacha',
+      payload: {
+        'gacha_id': gachaId,
+        'count': count,
+      },
     );
   }
 }
