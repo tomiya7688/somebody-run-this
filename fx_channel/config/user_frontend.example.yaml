@@ -1,6 +1,0 @@
-# ユーザー用アプリのGUI設定
-frontend:
-  entrypoint: "fx_channel.frontends.user.jp_soft_pop:Frontend"
-  options:
-    theme: "jp_soft_pop"
-    locale: "ja-JP"
