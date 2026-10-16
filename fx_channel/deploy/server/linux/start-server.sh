@@ -1,10 +1,11 @@
 #!/usr/bin/env sh
 set -eu
 
-BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SERVER_BIN="$BASE_DIR/fx-channel-server"
 CONFIG_FILE="$BASE_DIR/config/operator.yaml"
 CONTENT_DIR="$BASE_DIR/content"
+WEB_USER_DIR="$BASE_DIR/web-user"
 
 if [ ! -f "$SERVER_BIN" ]; then
   echo "ERROR: $SERVER_BIN not found." >&2
@@ -22,4 +23,4 @@ if [ -z "${FX_CHANNEL_OPERATOR_TOKEN:-}" ]; then
   exit 1
 fi
 
-exec "$SERVER_BIN" --operator "$CONFIG_FILE" --content "$CONTENT_DIR"
+exec "$SERVER_BIN" --operator "$CONFIG_FILE" --content "$CONTENT_DIR" --web-user "$WEB_USER_DIR"
