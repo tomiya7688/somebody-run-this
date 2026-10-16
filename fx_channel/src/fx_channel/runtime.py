@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .content import ContentRegistry, load_content_registry
+from .gacha import GachaEngine, GachaError
 from .market import PriceProvider, build_price_provider
 from .trading import TradingEngine, TradingError
 
 
 class FxChannelRuntime:
-    """Backend-only runtime for market, trading, content, and operator state."""
+    """Backend-only runtime for market, trading, content, economy, and operator state."""
 
     def __init__(
         self,
@@ -32,6 +33,27 @@ class FxChannelRuntime:
             ),
         )
 
+        economy_config = operator_config.get("economy", {})
+        starting_currencies = economy_config.get("starting_currencies", {})
+        if not isinstance(starting_currencies, dict):
+            starting_currencies = {}
+
+        raw_starting_characters = economy_config.get("starting_characters", [])
+        starting_characters = (
+            [str(value) for value in raw_starting_characters]
+            if isinstance(raw_starting_characters, list)
+            else []
+        )
+
+        self._gacha = GachaEngine(
+            content=self._content,
+            starting_currencies={
+                str(currency): int(amount)
+                for currency, amount in starting_currencies.items()
+            },
+            starting_characters=starting_characters,
+        )
+
     def _prices(self) -> dict[str, float]:
         raw = self._price_provider.get_prices(self._symbols)
         return {
@@ -52,15 +74,7 @@ class FxChannelRuntime:
             player_id=player_id,
             prices=prices,
         )
-        characters = [
-            {
-                "id": character.id,
-                "name": character.name,
-                "rarity": character.rarity,
-                "skill_ids": list(character.skills),
-            }
-            for character in self._content.characters.values()
-        ]
+        collection = self._gacha.snapshot(player_id)
 
         return {
             "player": {
@@ -75,7 +89,9 @@ class FxChannelRuntime:
             ],
             "positions": portfolio["positions"],
             "portfolio": portfolio,
-            "characters": characters,
+            "wallet": collection["currencies"],
+            "characters": collection["characters"],
+            "gacha_pools": self._gacha.public_pools(),
         }
 
     def user_action(
@@ -168,13 +184,27 @@ class FxChannelRuntime:
                     },
                 }
 
+            if action == "draw_gacha":
+                gacha_id = str(payload.get("gacha_id", ""))
+                count = int(payload.get("count", 1))
+                result = self._gacha.draw(
+                    player_id=player_id,
+                    gacha_id=gacha_id,
+                    count=count,
+                )
+                return {
+                    "ok": True,
+                    "message": "Gacha draw completed.",
+                    "data": result,
+                }
+
             return {
                 "ok": False,
                 "message": f"Unknown user action: {action!r}",
                 "data": {},
             }
 
-        except TradingError as exc:
+        except (TradingError, GachaError, ValueError, TypeError) as exc:
             return {
                 "ok": False,
                 "message": str(exc),
@@ -195,8 +225,39 @@ class FxChannelRuntime:
         action: str,
         payload: Mapping[str, Any],
     ) -> dict[str, Any]:
-        return {
-            "ok": False,
-            "message": f"Operator action {action!r} is not implemented yet.",
-            "data": {"payload": dict(payload)},
-        }
+        try:
+            if action == "grant_currency":
+                player_id = str(payload.get("player_id", "")).strip()
+                currency = str(payload.get("currency", "")).strip()
+                amount = int(payload.get("amount", 0))
+
+                if not player_id:
+                    raise GachaError("player_id is required.")
+
+                balance = self._gacha.grant_currency(
+                    player_id=player_id,
+                    currency=currency,
+                    amount=amount,
+                )
+                return {
+                    "ok": True,
+                    "message": "Currency granted.",
+                    "data": {
+                        "player_id": player_id,
+                        "currency": currency,
+                        "balance": balance,
+                    },
+                }
+
+            return {
+                "ok": False,
+                "message": f"Unknown operator action: {action!r}",
+                "data": {},
+            }
+
+        except (GachaError, ValueError, TypeError) as exc:
+            return {
+                "ok": False,
+                "message": str(exc),
+                "data": {},
+            }
