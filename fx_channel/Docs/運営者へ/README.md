@@ -46,6 +46,7 @@ market:
   simulated:
     seed: null
     tick_seconds: 5
+    default_start_price: 100.0
     base_volatility: 0.001
     drift: 0.0
 ```
@@ -59,6 +60,12 @@ market:
 ### tick_seconds
 
 何秒ごとに価格を更新するか。
+
+### default_start_price
+
+初めて登場する通貨ペアの開始価格です。
+
+架空通貨を追加した場合も、個別の初期値指定がない限りこの値から始まります。
 
 ### base_volatility
 
@@ -93,6 +100,7 @@ market:
     provider: generic_http
     endpoint: "https://example.com/api/rates"
     api_key_env: "FX_CHANNEL_API_KEY"
+    api_key_header: "X-API-Key"
     poll_seconds: 10
     timeout_seconds: 5
     on_error: keep_last
@@ -102,14 +110,38 @@ market:
 
 利用する価格取得アダプター。
 
-初期実装では `generic_http` を想定しています。
-今後、特定サービス用のアダプターを追加できます。
+初期実装は `generic_http` です。
+必要なら特定サービス用のアダプターを追加できます。
+
+### generic_http が期待するレスポンス
+
+次のどちらかのJSONを受け取れるAPIを想定しています。
+
+```json
+{
+  "rates": {
+    "USDJPY": 150.1,
+    "EURUSD": 1.08
+  }
+}
+```
+
+または、
+
+```json
+{
+  "USDJPY": 150.1,
+  "EURUSD": 1.08
+}
+```
+
+リクエスト時には `symbols=USDJPY,EURUSD` のようなクエリを付与します。
+
+利用したいAPIの形式が異なる場合は、そのAPI向けのアダプターを追加してください。
 
 ### endpoint
 
 為替レートを取得するAPIのURL。
-
-利用するAPIサービスの仕様に合わせて設定してください。
 
 ### api_key_env
 
@@ -125,6 +157,18 @@ api_key_env: "FX_CHANNEL_API_KEY"
 
 実際の秘密情報はサーバー側の環境変数へ設定してください。
 
+### api_key_header
+
+APIキーを送るHTTPヘッダー名です。
+
+初期値は：
+
+```yaml
+api_key_header: "X-API-Key"
+```
+
+利用するAPIに合わせて変更してください。
+
 ### poll_seconds
 
 外部APIへ問い合わせる間隔。
@@ -133,21 +177,13 @@ api_key_env: "FX_CHANNEL_API_KEY"
 
 ### on_error
 
-外部APIが落ちたときの挙動。
+外部APIが落ちたときの挙動です。
 
-初期値：
-
-```yaml
-on_error: keep_last
-```
-
-最後に取得できた価格を維持します。
-
-将来的には次の方式も追加できます。
-
-- `keep_last` — 最後の価格を維持
-- `pause_market` — 市場を停止
+- `keep_last` — 最後に取得できた価格を維持
+- `pause_market` — エラーとして扱い、市場を止める
 - `fallback_simulated` — 仮想相場へ退避
+
+`keep_last` は一度も価格取得に成功していない状態では維持できる価格がないため、市場エラーになります。
 
 ---
 
