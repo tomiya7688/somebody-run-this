@@ -80,20 +80,21 @@ class UserSessionManager:
             raise UserAuthError("Invalid user token.") from exc
 
         payload = f"v1.{player_id}".encode("utf-8")
-        expected = hmac.new(
+        expected_bytes = hmac.new(
             self._secret,
             payload,
             hashlib.sha256,
         ).digest()
+        expected_signature = (
+            base64.urlsafe_b64encode(expected_bytes)
+            .decode("ascii")
+            .rstrip("=")
+        )
 
-        try:
-            actual = base64.urlsafe_b64decode(
-                signature + "=" * (-len(signature) % 4)
-            )
-        except Exception as exc:
-            raise UserAuthError("Invalid user token.") from exc
-
-        if not hmac.compare_digest(actual, expected):
+        # Compare the canonical Base64URL representation directly. This rejects
+        # alternate non-canonical encodings whose unused trailing bits could
+        # otherwise decode to the same signature bytes.
+        if not hmac.compare_digest(signature, expected_signature):
             raise UserAuthError("Invalid user token.")
 
         return player_id
