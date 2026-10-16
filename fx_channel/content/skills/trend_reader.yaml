@@ -1,0 +1,9 @@
+id: trend_reader
+name: トレンドリーダー
+type: forecast
+description: 直近の値動きから短期的な方向を推測する。予測は将来の値動きを保証しない。
+implementation: trend_reader_v1
+cooldown_seconds: 300
+parameters:
+  lookback_ticks: 120
+  horizon_ticks: 12
