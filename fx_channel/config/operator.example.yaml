@@ -11,6 +11,16 @@
 # 環境変数を利用してください。
 # ============================================================
 
+server:
+  # バックエンドサーバーの待受。
+  # 公開運営時はリバースプロキシ/TLS等を別途構成してください。
+  host: "127.0.0.1"
+  port: 8787
+
+  # 運営用APIのBearer Tokenを格納する環境変数名。
+  # トークンそのものはこのファイルに書きません。
+  operator_token_env: "FX_CHANNEL_OPERATOR_TOKEN"
+
 market:
   # simulated または real
   mode: simulated
