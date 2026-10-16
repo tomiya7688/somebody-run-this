@@ -1,0 +1,10 @@
+id: analyst_mika
+name: ミカ
+rarity: SSR
+description: マーケット分析が得意なアナリスト。
+skills:
+  - trend_reader
+  - volatility_alert
+tags:
+  - analyst
+  - beginner_friendly
