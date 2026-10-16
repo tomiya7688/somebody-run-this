@@ -5,16 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fx-channel"
 version = "0.1.0"
-description = "A no-real-money FX social game with pluggable market price providers."
+description = "A no-real-money FX social game backend."
 requires-python = ">=3.11"
 dependencies = [
-  "PyYAML>=6.0"
+  "FastAPI>=0.110",
+  "PyYAML>=6.0",
+  "uvicorn>=0.29"
 ]
 
 [project.scripts]
 fx-channel-server = "fx_channel.server_main:main"
-fx-channel-user = "fx_channel.user_main:main"
-fx-channel-operator = "fx_channel.operator_main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
