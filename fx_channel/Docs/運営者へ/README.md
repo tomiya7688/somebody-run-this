@@ -2,6 +2,9 @@
 
 このディレクトリは **fx_channel を実際に運営する人のための説明書** です。
 
+
+**一般的なVPS / Ubuntu Server / Debian / Windows Serverへ置くだけで動かす手順は [サーバー設置.md](%E3%82%B5%E3%83%BC%E3%83%90%E3%83%BC%E8%A8%AD%E7%BD%AE.md) を先に参照してください。**
+
 ゲームを動かす前に、まず `fx_channel/config/operator.example.yaml` をコピーして、
 
 ```
