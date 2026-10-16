@@ -13,8 +13,17 @@ dependencies = [
   "uvicorn>=0.29"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27",
+  "pytest>=8.0"
+]
+
 [project.scripts]
 fx-channel-server = "fx_channel.server_main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
