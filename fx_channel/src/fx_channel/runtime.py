@@ -44,6 +44,24 @@ class FxChannelRuntime:
             symbol: deque(maxlen=5000)
             for symbol in self._symbols
         }
+        market_config = operator_config.get("market", {})
+        market_mode = str(market_config.get("mode", "simulated"))
+        if market_mode == "real":
+            source_config = market_config.get("real", {})
+            default_interval = 10.0
+            interval_key = "poll_seconds"
+        else:
+            source_config = market_config.get("simulated", {})
+            default_interval = 5.0
+            interval_key = "tick_seconds"
+
+        if not isinstance(source_config, Mapping):
+            source_config = {}
+        self._history_sample_interval = max(
+            0.0,
+            float(source_config.get(interval_key, default_interval)),
+        )
+        self._last_history_sample_at: float | None = None
 
         game_config = operator_config.get("game", {})
         self._trading = TradingEngine(
@@ -89,11 +107,23 @@ class FxChannelRuntime:
             for symbol in self._symbols
         }
 
-        timestamp = time.time()
-        for symbol, price in prices.items():
-            self._market_history[symbol].append(
-                PricePoint(timestamp=timestamp, price=price)
+        monotonic_now = time.monotonic()
+        should_sample = (
+            self._last_history_sample_at is None
+            or self._history_sample_interval <= 0
+            or (
+                monotonic_now - self._last_history_sample_at
+                >= self._history_sample_interval
             )
+        )
+
+        if should_sample:
+            timestamp = time.time()
+            for symbol, price in prices.items():
+                self._market_history[symbol].append(
+                    PricePoint(timestamp=timestamp, price=price)
+                )
+            self._last_history_sample_at = monotonic_now
 
         return prices
 
