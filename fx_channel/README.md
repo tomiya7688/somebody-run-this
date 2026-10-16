@@ -4,59 +4,86 @@
 
 相場は運営者が設定で切り替えられます。
 
-- **REAL**: 外部の為替レートAPIから価格を取得する
-- **SIMULATED**: ゲーム内で仮想相場を生成する
+- **REAL**: 外部の為替レートAPIから価格を取得
+- **SIMULATED**: ゲーム内で仮想相場を生成
 
-ゲームロジック側は価格の取得元を意識せず、共通の PriceProvider インターフェース経由で価格を利用します。
+キャラクター・スキル・ガチャをデータ駆動で追加でき、スキルは相場を変更できません。予測系スキルは分析結果を返すだけで、将来の値動きを保証しません。
 
-## 運営者へ
+## 起動構成
 
-**サーバーを立てる前に、必ず [Docs/運営者へ/README.md](Docs/%E9%81%8B%E5%96%B6%E8%80%85%E3%81%B8/README.md) を読んでください。**
+fx_channel は最初から **3つの別アプリ** として分けます。
 
-運営者が変更するべき設定は、原則として `config/operator.yaml` に集約します。
-
-テンプレートは [config/operator.example.yaml](config/operator.example.yaml) です。
-
-## 現在の最小実装
-
-`market.mode` によって価格取得方法を切り替えられます。
-
-```yaml
-market:
-  mode: simulated
+```text
+fx-channel-server
+  ├─ User API ──────→ fx-channel-user
+  └─ Operator API ──→ fx-channel-operator
 ```
 
-または、
+### 1. Backend Server
 
-```yaml
-market:
-  mode: real
-```
-
-動作確認：
+唯一、`operator.yaml`・PriceProvider・コンテンツ定義・将来のDBへ直接アクセスするプロセスです。
 
 ```bash
-cd fx_channel
-python -m venv .venv
-# .venv を有効化
-pip install -e .
-
-cp config/operator.example.yaml config/operator.yaml
-python -m fx_channel --config config/operator.yaml --ticks 3
+fx-channel-server --operator config/operator.yaml --content content
 ```
 
-## 基本方針
+### 2. User App
 
-- 現金の入金機能を持たない
-- ゲーム内通貨を現金へ換金する機能を持たない
-- ゲーム内残高はゲームのスコアとして扱う
-- 外部為替APIを使わなくても運営できる
-- 相場生成部分を差し替え可能にする
+プレイヤーが使うアプリです。
 
+- 日本ソシャゲ風 + 少しポップな `jp_soft_pop` がデフォルト
+- User APIしか利用しない
+- `operator.yaml` を読まない
+- 運営API・運営トークンを持たない
 
-## キャラクター・スキル
+```bash
+fx-channel-user \
+  --server http://127.0.0.1:8787 \
+  --frontend config/user_frontend.yaml
+```
 
-キャラクター、スキル、ガチャは `content/` 以下の YAML を追加して登録できます。
+### 3. Operator App
+
+運営者専用アプリです。
+
+- ユーザーGUIとは別パッケージ
+- Operator APIしか利用しない
+- Bearer Tokenが必要
+- 相場モード・コンテンツ・稼働状態などの管理UIを置く
+
+```bash
+fx-channel-operator \
+  --server http://127.0.0.1:8787 \
+  --frontend config/operator_frontend.yaml
+```
+
+運営トークンは例として次の環境変数に設定します。
+
+```bash
+export FX_CHANNEL_OPERATOR_TOKEN="replace-with-a-long-random-secret"
+```
+
+## GUI差し替え
+
+ユーザーGUIと運営GUIは、それぞれ独立して差し替えます。
+
+ユーザー：
+
+```yaml
+frontend:
+  entrypoint: "fx_channel.frontends.user.jp_soft_pop:Frontend"
+```
+
+運営：
+
+```yaml
+frontend:
+  entrypoint: "fx_channel.frontends.operator.control_panel:Frontend"
+```
+
+外部パッケージのFrontendへ変更しても構いません。
+
+## キャラクター・スキル・ガチャ
 
 ```text
 content/
@@ -71,51 +98,20 @@ content/
 python -m fx_channel.content_validate --content content
 ```
 
-スキルには市場を書き換えるAPIを渡しません。
-予測・分析系スキルは読み取り専用の相場情報から結果を返すだけで、将来の値動きを保証しません。
+詳しくは [Docs/運営者へ/キャラとスキル.md](Docs/%E9%81%8B%E5%96%B6%E8%80%85%E3%81%B8/%E3%82%AD%E3%83%A3%E3%83%A9%E3%81%A8%E3%82%B9%E3%82%AD%E3%83%AB.md) を参照してください。
 
-運営者向けの詳しい登録方法は [Docs/運営者へ/キャラとスキル.md](Docs/%E9%81%8B%E5%96%B6%E8%80%85%E3%81%B8/%E3%82%AD%E3%83%A3%E3%83%A9%E3%81%A8%E3%82%B9%E3%82%AD%E3%83%AB.md) にあります。
-
-
-## GUI / Frontend の完全分離
-
-GUIはゲーム処理から完全に分離します。
-
-デフォルトGUIは **日本ソシャゲ風 + 少しポップ** な `jp_soft_pop` です。
-
-GUI実装は `config/developer.yaml` で切り替えます。
-
-```yaml
-frontend:
-  entrypoint: "fx_channel.frontends.jp_soft_pop:Frontend"
-  options:
-    theme: "jp_soft_pop"
-    locale: "ja-JP"
-```
-
-別GUIへ交換する場合は、原則として `frontend.entrypoint` を変更するだけです。
-
-```yaml
-frontend:
-  entrypoint: "my_fx_gui.frontend:Frontend"
-```
-
-GUIは `ApplicationPort` だけを利用し、相場取得・ガチャ抽選・スキル処理・DB等へ直接アクセスしません。
-
-起動例：
-
-```bash
-cp config/developer.example.yaml config/developer.yaml
-python -m fx_channel.gui_run \
-  --operator config/operator.yaml \
-  --developer config/developer.yaml \
-  --content content
-```
-
-組み込みGUIが処理層へ直接依存していないかは、次で確認できます。
+## アーキテクチャ検証
 
 ```bash
 python -m fx_channel.architecture_validate
 ```
 
-設計の詳細は [Docs/開発者へ/GUI分離.md](Docs/%E9%96%8B%E7%99%BA%E8%80%85%E3%81%B8/GUI%E5%88%86%E9%9B%A2.md) にあります。
+ユーザーGUIが運営用Portをimportしたり、GUIが相場・DB等の内部処理へ直接依存した場合に検出する方針です。
+
+詳しくは [Docs/開発者へ/GUI分離.md](Docs/%E9%96%8B%E7%99%BA%E8%80%85%E3%81%B8/GUI%E5%88%86%E9%9B%A2.md) を参照してください。
+
+## 運営者へ
+
+運営設定は [config/operator.example.yaml](config/operator.example.yaml) をコピーして `config/operator.yaml` を作成します。
+
+**最初に [Docs/運営者へ/README.md](Docs/%E9%81%8B%E5%96%B6%E8%80%85%E3%81%B8/README.md) を読んでください。**
