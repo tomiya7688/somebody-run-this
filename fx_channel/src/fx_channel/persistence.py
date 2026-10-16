@@ -19,6 +19,9 @@ class PlayerStateStore(Protocol):
     ) -> None:
         ...
 
+    def list_player_ids(self, namespace: str) -> list[str]:
+        ...
+
 
 class MemoryPlayerStateStore:
     """Ephemeral store for tests and explicit development use."""
@@ -43,6 +46,14 @@ class MemoryPlayerStateStore:
         with self._lock:
             self._data[(namespace, player_id)] = json.loads(
                 json.dumps(dict(payload))
+            )
+
+    def list_player_ids(self, namespace: str) -> list[str]:
+        with self._lock:
+            return sorted(
+                player_id
+                for stored_namespace, player_id in self._data
+                if stored_namespace == namespace
             )
 
 
@@ -134,6 +145,20 @@ class SQLitePlayerStateStore:
             except Exception:
                 connection.execute("ROLLBACK")
                 raise
+
+    def list_player_ids(self, namespace: str) -> list[str]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT player_id
+                FROM player_state
+                WHERE namespace = ?
+                ORDER BY player_id
+                """,
+                (namespace,),
+            ).fetchall()
+
+        return [str(row[0]) for row in rows]
 
     def backup_to(self, destination: str | Path) -> Path:
         target = Path(destination)
