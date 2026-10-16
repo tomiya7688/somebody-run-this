@@ -16,6 +16,12 @@ server:
   # 同梱Flutter Webの公開パス
   user_web_route: "/play"
 
+storage:
+  # 標準はSQLite。追加DBサーバー不要で、1ファイルをバックアップできます。
+  type: sqlite
+  sqlite:
+    path: "data/fx_channel.db"
+
 market:
   # simulated または real
   mode: simulated
