@@ -1,13 +1,15 @@
 # Operator/server-local configuration
 fx_channel/config/operator.yaml
 
-# Frontend-local configuration
-fx_channel/config/user_frontend.yaml
-fx_channel/config/operator_frontend.yaml
-
 .env
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
+
+# Flutter / Dart generated build output
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/build/
