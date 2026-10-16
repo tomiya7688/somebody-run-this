@@ -103,7 +103,7 @@ class _HomePageState extends State<_HomePage> {
             ),
         ],
       ),
-      bottomNavigationBar: const NavigationBar(
+      bottomNavigationBar: NavigationBar(
         selectedIndex: 0,
         destinations: [
           NavigationDestination(
