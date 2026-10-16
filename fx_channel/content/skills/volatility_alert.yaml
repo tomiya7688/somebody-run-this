@@ -1,0 +1,9 @@
+id: volatility_alert
+name: ボラティリティアラート
+type: alert
+description: 直近の値動きが大きくなったときにプレイヤーへ通知する。
+implementation: volatility_alert_v1
+cooldown_seconds: 60
+parameters:
+  lookback_ticks: 60
+  threshold: 0.01
