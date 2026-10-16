@@ -62,7 +62,15 @@ economy:
     - rookie_aki
 
 season:
+  # falseにすると常設シーズン扱い
   enabled: true
+
+  # UTC基準。期間終了後の最初のアクセスで自動的に次シーズンへ移行
   duration_days: 7
+
+  # true: 新シーズンでFX残高/ポジションを初期化
+  # キャラ・ガチャ通貨・スキル状態は保持
   reset_balance: true
+
+  # 将来の実績システム用。現時点で実績自体は未実装
   keep_achievements: true
