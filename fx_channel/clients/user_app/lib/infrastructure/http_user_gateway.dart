@@ -129,6 +129,9 @@ class HttpUserGateway implements UserGateway {
     final response = await _authorizedGet(_uri('/api/user/home'));
     final decoded = await _decode(response);
     final player = decoded['player'] as Map<String, dynamic>;
+    final season = SeasonView.fromJson(
+      decoded['season'] as Map<String, dynamic>,
+    );
     final portfolio = decoded['portfolio'] as Map<String, dynamic>;
 
     final quotes = (decoded['quotes'] as List<dynamic>)
@@ -165,6 +168,7 @@ class HttpUserGateway implements UserGateway {
     return HomeView(
       playerId: player['player_id'] as String,
       displayName: player['display_name'] as String,
+      season: season,
       availableBalance: (portfolio['available_balance'] as num).toDouble(),
       equity: (portfolio['equity'] as num).toDouble(),
       lockedMargin: (portfolio['locked_margin'] as num).toDouble(),
