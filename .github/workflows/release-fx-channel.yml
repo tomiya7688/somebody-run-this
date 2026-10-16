@@ -1,0 +1,51 @@
+name: Release fx_channel
+
+on:
+  push:
+    tags:
+      - "fx-channel-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  user:
+    needs: test
+    uses: ./.github/workflows/build-user-app.yml
+
+  operator:
+    needs: test
+    uses: ./.github/workflows/build-operator-app.yml
+
+  server:
+    needs: test
+    uses: ./.github/workflows/build-server.yml
+
+  release:
+    needs:
+      - user
+      - operator
+      - server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Collect files and checksums
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f -exec cp {} release-files/ \;
+          cd release-files
+          sha256sum * > SHA256SUMS.txt
+          ls -lah
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-files/* \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
