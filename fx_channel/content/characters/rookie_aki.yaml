@@ -1,0 +1,8 @@
+id: rookie_aki
+name: アキ
+rarity: R
+description: 基本的な相場観察を得意とする新人トレーダー。
+skills:
+  - volatility_alert
+tags:
+  - starter
