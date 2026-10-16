@@ -1,0 +1,56 @@
+name: Build Operator App
+
+on:
+  push:
+    paths:
+      - "fx_channel/clients/operator_app/**"
+      - ".github/workflows/build-operator-app.yml"
+  workflow_dispatch:
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Windows host
+        working-directory: fx_channel/clients/operator_app
+        run: flutter create . --platforms=windows --org io.github.tomiya7688 --project-name fx_channel_operator
+      - name: Build Windows
+        working-directory: fx_channel/clients/operator_app
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath ..\..\..\fx-channel-operator-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-operator-windows-x64
+          path: fx-channel-operator-windows-x64.zip
+
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Linux host
+        working-directory: fx_channel/clients/operator_app
+        run: flutter create . --platforms=linux --org io.github.tomiya7688 --project-name fx_channel_operator
+      - name: Build Linux
+        working-directory: fx_channel/clients/operator_app
+        run: |
+          flutter pub get
+          flutter build linux --release
+          tar -czf ../../../fx-channel-operator-linux-x64.tar.gz -C build/linux/x64/release/bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-operator-linux-x64
+          path: fx-channel-operator-linux-x64.tar.gz
