@@ -7,17 +7,17 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .auth import UserAuthError, UserSessionManager
 from .config import load_operator_config
 from .runtime import FxChannelRuntime
 
 
 class UserActionRequest(BaseModel):
-    player_id: str = "guest"
     action: str
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -39,6 +39,7 @@ def create_app(
         title="fx_channel server",
         version="0.1.0",
     )
+    user_sessions = UserSessionManager.from_operator_token(operator_token)
 
     origins = list(cors_origins or [])
     if origins:
@@ -56,22 +57,43 @@ def create_app(
         if not hmac.compare_digest(actual, expected):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
+    def require_user(authorization: str | None) -> str:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="User session required")
+
+        token = authorization.removeprefix("Bearer ").strip()
+        try:
+            return user_sessions.verify(token)
+        except UserAuthError as exc:
+            raise HTTPException(status_code=401, detail="Invalid user session") from exc
+
     @app.get("/health")
     def health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.post("/api/user/session")
+    def user_session() -> dict[str, str]:
+        return user_sessions.issue()
 
     @app.get("/api/user/quotes")
     def user_quotes() -> dict[str, Any]:
         return {"quotes": runtime.user_quotes()}
 
     @app.get("/api/user/home")
-    def user_home(player_id: str = Query(default="guest")) -> dict[str, Any]:
+    def user_home(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        player_id = require_user(authorization)
         return runtime.user_home(player_id)
 
     @app.post("/api/user/action")
-    def user_action(request: UserActionRequest) -> dict[str, Any]:
+    def user_action(
+        request: UserActionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        player_id = require_user(authorization)
         return runtime.user_action(
-            request.player_id,
+            player_id,
             request.action,
             request.payload,
         )
