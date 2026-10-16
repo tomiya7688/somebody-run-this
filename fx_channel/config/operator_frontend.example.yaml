@@ -1,0 +1,6 @@
+# 運営用アプリのGUI設定
+frontend:
+  entrypoint: "fx_channel.frontends.operator.control_panel:Frontend"
+  options:
+    theme: "operator_control_panel"
+    locale: "ja-JP"
