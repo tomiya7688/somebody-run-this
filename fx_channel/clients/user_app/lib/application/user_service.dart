@@ -159,10 +159,34 @@ class GachaPoolView {
   final List<GachaEntryView> entries;
 }
 
+class SeasonView {
+  const SeasonView({
+    required this.id,
+    required this.enabled,
+    required this.startAtIso,
+    required this.endAtIso,
+  });
+
+  factory SeasonView.fromJson(Map<String, dynamic> json) {
+    return SeasonView(
+      id: json['id'] as String,
+      enabled: json['enabled'] as bool,
+      startAtIso: json['start_at_iso'] as String,
+      endAtIso: json['end_at_iso']?.toString(),
+    );
+  }
+
+  final String id;
+  final bool enabled;
+  final String startAtIso;
+  final String? endAtIso;
+}
+
 class HomeView {
   const HomeView({
     required this.playerId,
     required this.displayName,
+    required this.season,
     required this.availableBalance,
     required this.equity,
     required this.lockedMargin,
@@ -177,6 +201,7 @@ class HomeView {
 
   final String playerId;
   final String displayName;
+  final SeasonView season;
   final double availableBalance;
   final double equity;
   final double lockedMargin;
