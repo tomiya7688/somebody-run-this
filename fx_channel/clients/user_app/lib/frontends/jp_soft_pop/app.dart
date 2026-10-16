@@ -929,6 +929,7 @@ class _RankingPage extends StatefulWidget {
 
 class _RankingPageState extends State<_RankingPage> {
   List<RankingEntryView>? _ranking;
+  String? _serverPlayerId;
   String? _error;
 
   @override
@@ -939,9 +940,15 @@ class _RankingPageState extends State<_RankingPage> {
 
   Future<void> _reload() async {
     try {
-      final ranking = await widget.service.loadRanking(widget.playerId);
+      final results = await Future.wait([
+        widget.service.loadHome(widget.playerId),
+        widget.service.loadRanking(widget.playerId),
+      ]);
+      final home = results[0] as HomeView;
+      final ranking = results[1] as List<RankingEntryView>;
       if (!mounted) return;
       setState(() {
+        _serverPlayerId = home.playerId;
         _ranking = ranking;
         _error = null;
       });
@@ -996,7 +1003,7 @@ class _RankingPageState extends State<_RankingPage> {
           else
             ...ranking.map(
               (entry) {
-                final isMe = entry.playerId == widget.playerId;
+                final isMe = entry.playerId == _serverPlayerId;
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
