@@ -1,62 +1,39 @@
 # ============================================================
 # fx_channel 運営設定
 # ============================================================
-#
-# このファイルを operator.yaml にコピーして利用してください。
-#
-# 運営方法の説明:
-#   ../Docs/運営者へ/README.md
-#
-# APIキーなどの秘密情報はこのファイルへ直接書かず、
-# 環境変数を利用してください。
-# ============================================================
 
 server:
-  # バックエンドサーバーの待受。
-  # 公開運営時はリバースプロキシ/TLS等を別途構成してください。
   host: "127.0.0.1"
   port: 8787
 
-  # 運営用APIのBearer Tokenを格納する環境変数名。
-  # トークンそのものはこのファイルに書きません。
+  # Operator API Bearer Tokenを格納する環境変数名
   operator_token_env: "FX_CHANNEL_OPERATOR_TOKEN"
+
+  # Flutter Webを別ドメインでホストする場合のみ許可元を列挙
+  # 同一サーバーの /play/ から配信する場合は空で構いません
+  cors_origins: []
+
+  # 同梱Flutter Webの公開パス
+  user_web_route: "/play"
 
 market:
   # simulated または real
   mode: simulated
 
   simulated:
-    # null = 起動ごとにランダム
     seed: null
-
-    # 価格更新間隔
     tick_seconds: 5
-
-    # シンボルごとの初期価格。未指定シンボルはこの値から開始
     default_start_price: 100.0
-
-    # 基本ボラティリティ
     base_volatility: 0.001
-
-    # 長期方向バイアス
     drift: 0.0
 
   real:
     provider: generic_http
-
-    # 利用する外部APIに置き換えてください
     endpoint: "https://example.com/api/rates"
-
-    # APIキーそのものではなく環境変数名
     api_key_env: "FX_CHANNEL_API_KEY"
-
-    # APIキーを送るHTTPヘッダー名
     api_key_header: "X-API-Key"
-
     poll_seconds: 10
     timeout_seconds: 5
-
-    # keep_last / pause_market / fallback_simulated
     on_error: keep_last
 
 symbols:
@@ -65,20 +42,12 @@ symbols:
   - GBPUSD
 
 game:
-  # ゲーム内の仮想資金
   starting_balance: 1000000
-
   max_leverage: 25
-
   allow_negative_balance: false
 
 season:
   enabled: true
-
   duration_days: 7
-
-  # シーズン終了時に残高を初期化
   reset_balance: true
-
-  # 実績や称号は残す
   keep_achievements: true
