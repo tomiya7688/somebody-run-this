@@ -1,4 +1,9 @@
 """Built-in fx_channel frontends.
 
-Frontend packages must depend only on fx_channel.frontend_api contracts.
+User-facing and operator-facing frontends live in separate packages:
+
+- fx_channel.frontends.user
+- fx_channel.frontends.operator
+
+They use different application-port contracts and must not import each other.
 """
