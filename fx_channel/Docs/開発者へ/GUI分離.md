@@ -1,196 +1,163 @@
-# GUIと処理層の完全分離
+# GUI・ユーザーアプリ・運営アプリの分離
 
-fx_channel では **GUIとゲーム処理を完全に分離する** ことを基本設計とします。
+fx_channel は「GUIと処理を分ける」だけではなく、**ユーザー用アプリと運営用アプリ自体も別物**として扱います。
 
-デフォルトGUIは、日本のスマホソシャゲ風をベースにした少しポップな `jp_soft_pop` です。
+## 3プロセス
 
-ただし、`jp_soft_pop` はゲーム本体ではありません。
+```text
+┌────────────────────┐
+│ fx-channel-user    │
+│ User Frontend      │
+└─────────┬──────────┘
+          │ User API only
+          ▼
+┌────────────────────┐
+│ fx-channel-server  │
+│ Backend Runtime    │
+│ Market / Gacha /   │
+│ Skill / DB / etc.  │
+└─────────┬──────────┘
+          │ Operator API only
+          ▼
+┌────────────────────┐
+│ fx-channel-operator│
+│ Operator Frontend  │
+└────────────────────┘
+```
 
-GUIを削除・交換しても、
+### Server
 
-- FX取引
-- 相場取得
-- キャラクター
-- スキル
-- ガチャ
-- プレイヤー状態
-- シーズン
-- ランキング
+`server_main.py` が起動点です。
 
-などの処理が壊れない構造にします。
+サーバーだけが次へ直接アクセスします。
 
----
+- `operator.yaml`
+- PriceProvider
+- キャラクター/スキル/ガチャ定義
+- DB
+- 外部API
+- 運営設定
 
-# 原則
+### User App
 
-## GUIにゲームロジックを書かない
+`user_main.py` が起動点です。
 
-GUI側が行うのは次だけです。
+User Appは、
+
+- `UserApplicationPort`
+- User API
+
+だけを利用します。
+
+**OperatorApplicationPort、operator.yaml、PriceProvider、DBへアクセスさせません。**
+
+組み込みGUI：
+
+```text
+frontends/user/
+└─ jp_soft_pop.py
+```
+
+### Operator App
+
+`operator_main.py` が起動点です。
+
+Operator Appは、
+
+- `OperatorApplicationPort`
+- 認証済みOperator API
+
+だけを利用します。
+
+組み込みGUI：
+
+```text
+frontends/operator/
+└─ control_panel.py
+```
+
+ユーザー用の華やかなソシャゲUIを運営画面へ流用する必要はありません。
+
+## GUIの責務
+
+どちらのGUIにもゲームロジックを書きません。
+
+GUIがしてよいこと：
 
 - 表示
 - 入力受付
-- Application Port の呼び出し
-- Application Port から返されたDTOの描画
+- 自分専用のApplication Portを呼ぶ
+- DTOを描画する
 
-GUI側に、
+GUIがしてはいけないこと：
 
 - 損益計算
 - 注文成立判定
 - ガチャ抽選
-- スキル計算
+- スキル処理
 - 相場生成
-- PriceProviderアクセス
+- PriceProviderへの直接アクセス
 - DBへの直接アクセス
+- 反対側アプリのPortをimportする
 
-を書いてはいけません。
+## GUI差し替え
 
----
-
-# 依存方向
-
-```text
-┌─────────────────────────────┐
-│        GUI / Frontend       │
-│  jp_soft_pop / custom GUI   │
-└──────────────┬──────────────┘
-               │
-               │ ApplicationPort のみ
-               ▼
-┌─────────────────────────────┐
-│      Application Layer      │
-│ use case / command / query  │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│       Domain / Services     │
-│ FX / Skill / Gacha / Season│
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│ Infrastructure / Providers  │
-│ Market / DB / External API  │
-└─────────────────────────────┘
-```
-
-**下の層からGUIをimportしてはいけません。**
-
----
-
-# GUIの切り替え
-
-`config/developer.yaml` の `frontend.entrypoint` を変更します。
-
-デフォルト：
+ユーザーGUI：
 
 ```yaml
 frontend:
-  entrypoint: "fx_channel.frontends.jp_soft_pop:Frontend"
+  entrypoint: "fx_channel.frontends.user.jp_soft_pop:Frontend"
+  options:
+    theme: "jp_soft_pop"
 ```
 
-別GUI：
+運営GUI：
 
 ```yaml
 frontend:
-  entrypoint: "my_fx_gui.frontend:Frontend"
+  entrypoint: "fx_channel.frontends.operator.control_panel:Frontend"
+  options:
+    theme: "operator_control_panel"
 ```
 
-外部PythonパッケージとしてGUIを実装しても構いません。
+それぞれ別々に差し替え可能です。
 
-fx_channel本体へforkを入れなくてもGUI交換できることを目標にします。
+## デフォルトユーザーGUI
 
----
+`jp_soft_pop` は、
 
-# GUI実装が満たすもの
+> 日本のスマホソシャゲ風の親しみやすさ + 見やすいFX情報UI + 少しポップ
 
-GUIは `fx_channel.frontend_api.Frontend` と同じインターフェースを満たします。
-
-概念上：
-
-```python
-class Frontend:
-    def run(self, app, options):
-        ...
-```
-
-GUIへ渡される `app` は `ApplicationPort` です。
-
-GUIは内部のMarketProviderやDBを受け取りません。
-
----
-
-# DTOを境界にする
-
-GUIへDomain Objectを直接渡さず、画面表示用DTOを返します。
-
-例：
-
-```text
-MarketProvider
-      ↓
- Domain
-      ↓
- Application
-      ↓
- MarketView DTO
-      ↓
- GUI
-```
-
-これにより、GUI側の都合でゲーム処理の内部表現が汚染されることを防ぎます。
-
----
-
-# デフォルトGUI: jp_soft_pop
-
-デザイン方針：
-
-> 日本のスマホソシャゲ風の親しみやすさに、見やすいFX情報UIを合わせた、少しポップなデザイン。
-
-基本：
+を基準にします。
 
 - 白〜淡いグレー主体
-- 水色・ピンク・黄色・ミント等をアクセント
+- 水色・ピンク・黄色・ミントをアクセント
 - 角丸カード
-- 柔らかい影
 - キャラを前面に出す
-- ホーム・キャラ・ガチャはポップ
-- 取引画面は情報の読みやすさ優先
+- ホーム/キャラ/ガチャはポップ
+- 取引画面は数字とチャートの可読性優先
 - スマホファースト
-- FX数値は装飾より可読性を優先
-- 誤タップしやすい取引操作は大きく明確にする
 
----
+## 運営GUI
 
-# テーマとGUI実装は別概念
+運営画面は別目的なので、可読性・一覧性・事故防止を優先します。
 
-`frontend.entrypoint` は **GUIそのものの実装** です。
+- サーバー状態
+- 相場モード
+- API状態
+- キャラ/スキル/ガチャ登録状況
+- シーズン状態
+- プレイヤー管理
+- ログ/監査
 
-`frontend.options.theme` は **そのGUI内の見た目テーマ** です。
+などを扱う想定です。
 
-たとえば将来的に、
+## アーキテクチャ検証
 
-```yaml
-frontend:
-  entrypoint: "fx_channel.frontends.web:Frontend"
-  options:
-    theme: "dark_terminal"
+```bash
+python -m fx_channel.architecture_validate
 ```
 
-のように、同じWeb GUIで見た目だけ変更することもできます。
+組み込みUser Frontendは `fx_channel.user_frontend_api` だけ、Operator Frontendは `fx_channel.operator_frontend_api` だけに依存することを検査します。
 
----
-
-# 新GUIを作る開発者へ
-
-新GUIは原則として、
-
-1. `Frontend.run(app, options)` を実装する
-2. `ApplicationPort` だけを使う
-3. fx_channel内部モジュールへ直接アクセスしない
-4. `developer.yaml` の entrypoint を変更する
-
-だけで動かせることを目標にします。
-
-**GUI交換のためにゲームロジックを書き換える必要がある状態は設計上の不具合とみなします。**
+**ユーザーアプリと運営アプリを再び1つのApplicationPortへ統合する変更は行わない方針です。**
