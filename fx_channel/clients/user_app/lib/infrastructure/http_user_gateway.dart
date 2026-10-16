@@ -146,6 +146,11 @@ class HttpUserGateway implements UserGateway {
         .map(CharacterView.fromJson)
         .toList(growable: false);
 
+    final skills = (decoded['skills'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(SkillView.fromJson)
+        .toList(growable: false);
+
     final walletRaw = decoded['wallet'] as Map<String, dynamic>;
     final wallet = {
       for (final entry in walletRaw.entries)
@@ -167,6 +172,7 @@ class HttpUserGateway implements UserGateway {
       quotes: quotes,
       positions: positions,
       characters: characters,
+      skills: skills,
       wallet: wallet,
       gachaPools: gachaPools,
     );
