@@ -19,6 +19,7 @@
 - 運営アプリから通貨付与
 - 読み取り専用相場データを使うスキル
 - 現在評価額ランキング
+- 自動シーズン切替、残高/ランキングリセット、手動シーズン進行
 - Operator AppからDB + User Session鍵のバックアップ
 - Windows EXE / Android APK / Web / Server BundleのCI
 
