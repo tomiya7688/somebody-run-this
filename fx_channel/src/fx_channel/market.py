@@ -4,10 +4,12 @@ import json
 import math
 import os
 import random
+import threading
+import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
 
 
 class MarketError(RuntimeError):
@@ -22,28 +24,68 @@ class PriceProvider(Protocol):
 @dataclass
 class SimulatedPriceProvider:
     seed: int | None = None
+    tick_seconds: float = 5.0
     base_volatility: float = 0.001
     drift: float = 0.0
     default_start_price: float = 100.0
+    max_catchup_ticks: int = 1000
+    clock: Callable[[], float] = field(
+        default=time.monotonic,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
         self._prices: dict[str, float] = {}
+        self._last_tick_at: float | None = None
+        self._lock = threading.RLock()
 
     def get_prices(self, symbols: list[str]) -> dict[str, float]:
-        result: dict[str, float] = {}
+        with self._lock:
+            for symbol in symbols:
+                self._prices.setdefault(symbol, self.default_start_price)
 
-        for symbol in symbols:
-            previous = self._prices.get(symbol, self.default_start_price)
+            now = self.clock()
+            if self._last_tick_at is None:
+                self._last_tick_at = now
+                return {
+                    symbol: self._prices[symbol]
+                    for symbol in symbols
+                }
 
-            # Geometric random walk: prices always remain positive.
-            shock = self._rng.gauss(0.0, self.base_volatility)
-            next_price = previous * math.exp(self.drift + shock)
+            if self.tick_seconds <= 0:
+                ticks = 1
+            else:
+                elapsed = max(0.0, now - self._last_tick_at)
+                ticks = int(elapsed // self.tick_seconds)
 
-            self._prices[symbol] = next_price
-            result[symbol] = next_price
+            if ticks <= 0:
+                return {
+                    symbol: self._prices[symbol]
+                    for symbol in symbols
+                }
 
-        return result
+            capped_ticks = min(ticks, max(1, self.max_catchup_ticks))
+
+            for _ in range(capped_ticks):
+                for symbol in symbols:
+                    previous = self._prices[symbol]
+                    # Geometric random walk: prices always remain positive.
+                    shock = self._rng.gauss(0.0, self.base_volatility)
+                    self._prices[symbol] = previous * math.exp(
+                        self.drift + shock
+                    )
+
+            if self.tick_seconds <= 0 or ticks > capped_ticks:
+                self._last_tick_at = now
+            else:
+                self._last_tick_at += capped_ticks * self.tick_seconds
+
+            return {
+                symbol: self._prices[symbol]
+                for symbol in symbols
+            }
 
 
 @dataclass
@@ -51,26 +93,74 @@ class GenericHttpPriceProvider:
     endpoint: str
     api_key_env: str | None = None
     api_key_header: str = "X-API-Key"
+    poll_seconds: float = 10.0
     timeout_seconds: float = 5.0
     on_error: str = "keep_last"
     fallback: PriceProvider | None = None
+    clock: Callable[[], float] = field(
+        default=time.monotonic,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         self._last_prices: dict[str, float] = {}
+        self._last_poll_at: float | None = None
+        self._last_error: Exception | None = None
+        self._lock = threading.RLock()
 
     def get_prices(self, symbols: list[str]) -> dict[str, float]:
-        try:
-            prices = self._fetch(symbols)
-            self._last_prices.update(prices)
-            return {symbol: self._last_prices[symbol] for symbol in symbols}
-        except Exception as exc:
-            if self.on_error == "keep_last":
-                if all(symbol in self._last_prices for symbol in symbols):
-                    return {symbol: self._last_prices[symbol] for symbol in symbols}
-            elif self.on_error == "fallback_simulated" and self.fallback is not None:
-                return self.fallback.get_prices(symbols)
+        with self._lock:
+            now = self.clock()
+            within_poll_window = (
+                self._last_poll_at is not None
+                and self.poll_seconds > 0
+                and now - self._last_poll_at < self.poll_seconds
+            )
 
-            raise MarketError(f"Failed to obtain real market prices: {exc}") from exc
+            if within_poll_window:
+                if all(symbol in self._last_prices for symbol in symbols):
+                    return {
+                        symbol: self._last_prices[symbol]
+                        for symbol in symbols
+                    }
+                return self._handle_error(
+                    symbols,
+                    self._last_error
+                    or MarketError("Market data is not available yet."),
+                )
+
+            self._last_poll_at = now
+
+            try:
+                prices = self._fetch(symbols)
+                self._last_prices.update(prices)
+                self._last_error = None
+                return {
+                    symbol: self._last_prices[symbol]
+                    for symbol in symbols
+                }
+            except Exception as exc:
+                self._last_error = exc
+                return self._handle_error(symbols, exc)
+
+    def _handle_error(
+        self,
+        symbols: list[str],
+        exc: Exception,
+    ) -> dict[str, float]:
+        if self.on_error == "keep_last":
+            if all(symbol in self._last_prices for symbol in symbols):
+                return {
+                    symbol: self._last_prices[symbol]
+                    for symbol in symbols
+                }
+        elif self.on_error == "fallback_simulated" and self.fallback is not None:
+            return self.fallback.get_prices(symbols)
+
+        raise MarketError(
+            f"Failed to obtain real market prices: {exc}"
+        ) from exc
 
     def _fetch(self, symbols: list[str]) -> dict[str, float]:
         separator = "&" if "?" in self.endpoint else "?"
@@ -89,7 +179,10 @@ class GenericHttpPriceProvider:
 
         request = urllib.request.Request(url, headers=headers)
 
-        with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=self.timeout_seconds,
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
         # Supported generic response forms:
@@ -102,16 +195,22 @@ class GenericHttpPriceProvider:
             raw_rates = payload
 
         if not isinstance(raw_rates, dict):
-            raise MarketError("API response must be a mapping of symbol -> price.")
+            raise MarketError(
+                "API response must be a mapping of symbol -> price."
+            )
 
         prices: dict[str, float] = {}
         for symbol in symbols:
             if symbol not in raw_rates:
-                raise MarketError(f"API response did not include {symbol!r}.")
+                raise MarketError(
+                    f"API response did not include {symbol!r}."
+                )
 
             price = float(raw_rates[symbol])
             if not math.isfinite(price) or price <= 0:
-                raise MarketError(f"Invalid price for {symbol!r}: {price!r}")
+                raise MarketError(
+                    f"Invalid price for {symbol!r}: {price!r}"
+                )
 
             prices[symbol] = price
 
@@ -125,9 +224,14 @@ def build_price_provider(config: dict[str, Any]) -> PriceProvider:
     simulated_config = market.get("simulated", {})
     simulated = SimulatedPriceProvider(
         seed=simulated_config.get("seed"),
-        base_volatility=float(simulated_config.get("base_volatility", 0.001)),
+        tick_seconds=float(simulated_config.get("tick_seconds", 5)),
+        base_volatility=float(
+            simulated_config.get("base_volatility", 0.001)
+        ),
         drift=float(simulated_config.get("drift", 0.0)),
-        default_start_price=float(simulated_config.get("default_start_price", 100.0)),
+        default_start_price=float(
+            simulated_config.get("default_start_price", 100.0)
+        ),
     )
 
     if mode == "simulated":
@@ -144,7 +248,10 @@ def build_price_provider(config: dict[str, Any]) -> PriceProvider:
     return GenericHttpPriceProvider(
         endpoint=str(real_config["endpoint"]),
         api_key_env=real_config.get("api_key_env"),
-        api_key_header=str(real_config.get("api_key_header", "X-API-Key")),
+        api_key_header=str(
+            real_config.get("api_key_header", "X-API-Key")
+        ),
+        poll_seconds=float(real_config.get("poll_seconds", 10)),
         timeout_seconds=float(real_config.get("timeout_seconds", 5)),
         on_error=str(real_config.get("on_error", "keep_last")),
         fallback=simulated,
