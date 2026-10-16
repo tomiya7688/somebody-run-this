@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import time
+import zipfile
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from .content import ContentRegistry, load_content_registry
 from .gacha import GachaEngine, GachaError
 from .market import PriceProvider, build_price_provider
-from .persistence import PlayerStateStore, build_player_state_store
+from .persistence import (
+    PlayerStateStore,
+    SQLitePlayerStateStore,
+    build_player_state_store,
+)
 from .skill_api import MarketSnapshot, PricePoint
 from .skills import SkillEngine, SkillError
 from .trading import TradingEngine, TradingError
@@ -25,12 +31,13 @@ class FxChannelRuntime:
         data_root: str | Path | None = None,
     ) -> None:
         self._config = operator_config
+        self._data_root = Path(data_root or ".").resolve()
         self._symbols = list(operator_config["symbols"])
         self._price_provider: PriceProvider = build_price_provider(operator_config)
         self._content: ContentRegistry = load_content_registry(content_root)
         self._state_store: PlayerStateStore = build_player_state_store(
             operator_config.get("storage", {}),
-            base_dir=data_root,
+            base_dir=self._data_root,
         )
 
         self._market_history: dict[str, deque[PricePoint]] = {
@@ -357,6 +364,53 @@ class FxChannelRuntime:
                 "data": {},
             }
 
+
+    def _backup_server_state(self) -> dict[str, Any]:
+        if not isinstance(self._state_store, SQLitePlayerStateStore):
+            return {
+                "ok": False,
+                "message": "Server state backup requires SQLite storage.",
+                "data": {},
+            }
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        backup_dir = self._data_root / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        temp_db = backup_dir / f"fx_channel-{timestamp}.db"
+        archive = backup_dir / f"fx_channel-backup-{timestamp}.zip"
+        secret_path = (
+            self._data_root
+            / "data"
+            / "user_session_secret.bin"
+        )
+
+        self._state_store.backup_to(temp_db)
+
+        try:
+            with zipfile.ZipFile(
+                archive,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as output:
+                output.write(temp_db, arcname="fx_channel.db")
+                if secret_path.exists():
+                    output.write(
+                        secret_path,
+                        arcname="user_session_secret.bin",
+                    )
+        finally:
+            temp_db.unlink(missing_ok=True)
+
+        return {
+            "ok": True,
+            "message": "Server state backup created.",
+            "data": {
+                "backup": str(archive),
+                "contains_session_secret": secret_path.exists(),
+            },
+        }
+
     def operator_status(self) -> dict[str, Any]:
         return {
             "market_mode": str(self._config["market"]["mode"]),
@@ -372,6 +426,9 @@ class FxChannelRuntime:
         payload: Mapping[str, Any],
     ) -> dict[str, Any]:
         try:
+            if action == "backup_server_state":
+                return self._backup_server_state()
+
             if action == "grant_currency":
                 player_id = str(payload.get("player_id", "")).strip()
                 currency = str(payload.get("currency", "")).strip()
