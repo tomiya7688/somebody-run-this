@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'application/user_service.dart';
 import 'frontends/jp_soft_pop/app.dart';
 import 'infrastructure/http_user_gateway.dart';
+import 'infrastructure/player_identity.dart';
 import 'infrastructure/server_settings.dart';
 
 Future<void> main() async {
@@ -19,6 +20,7 @@ Future<void> main() async {
   );
 
   final savedServerUrl = await ServerSettings.load();
+  final playerId = await PlayerIdentity.loadOrCreate();
   final initialServerUrl = savedServerUrl.isNotEmpty
       ? savedServerUrl
       : ServerSettings.normalize(compiledServerUrl);
@@ -27,6 +29,7 @@ Future<void> main() async {
     UserBootstrap(
       initialServerUrl: initialServerUrl,
       frontend: frontend,
+      playerId: playerId,
     ),
   );
 }
@@ -36,10 +39,12 @@ class UserBootstrap extends StatefulWidget {
     super.key,
     required this.initialServerUrl,
     required this.frontend,
+    required this.playerId,
   });
 
   final String initialServerUrl;
   final String frontend;
+  final String playerId;
 
   @override
   State<UserBootstrap> createState() => _UserBootstrapState();
@@ -89,6 +94,7 @@ class _UserBootstrapState extends State<UserBootstrap> {
       case 'jp_soft_pop':
         return JpSoftPopApp(
           service: service,
+          playerId: widget.playerId,
           onChangeServer: kIsWeb ? null : _changeServer,
         );
       default:
