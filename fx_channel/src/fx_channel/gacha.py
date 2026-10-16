@@ -3,9 +3,10 @@ from __future__ import annotations
 import random
 import threading
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Any, Mapping
 
 from .content import ContentRegistry, GachaDefinition
+from .persistence import PlayerStateStore
 
 
 class GachaError(ValueError):
@@ -19,11 +20,9 @@ class PlayerCollection:
 
 
 class GachaEngine:
-    """
-    Server-authoritative gacha and collection state.
+    """Server-authoritative gacha, wallet, and character collection state."""
 
-    Clients receive results and published rates, but never perform the draw.
-    """
+    _STATE_NAMESPACE = "gacha"
 
     def __init__(
         self,
@@ -32,6 +31,7 @@ class GachaEngine:
         starting_currencies: Mapping[str, int] | None = None,
         starting_characters: list[str] | None = None,
         rng: random.Random | random.SystemRandom | None = None,
+        state_store: PlayerStateStore | None = None,
     ) -> None:
         self._content = content
         self._starting_currencies = {
@@ -40,6 +40,7 @@ class GachaEngine:
         }
         self._starting_characters = list(starting_characters or [])
         self._rng = rng or random.SystemRandom()
+        self._state_store = state_store
         self._players: dict[str, PlayerCollection] = {}
         self._lock = threading.RLock()
 
@@ -60,16 +61,70 @@ class GachaEngine:
         if player is not None:
             return player
 
-        characters: dict[str, int] = {}
-        for character_id in self._starting_characters:
-            characters[character_id] = characters.get(character_id, 0) + 1
-
-        player = PlayerCollection(
-            currencies=dict(self._starting_currencies),
-            characters=characters,
+        stored = (
+            self._state_store.load(self._STATE_NAMESPACE, player_id)
+            if self._state_store is not None
+            else None
         )
+        if stored is not None:
+            player = self._deserialize_player(stored)
+        else:
+            characters: dict[str, int] = {}
+            for character_id in self._starting_characters:
+                characters[character_id] = characters.get(character_id, 0) + 1
+
+            player = PlayerCollection(
+                currencies=dict(self._starting_currencies),
+                characters=characters,
+            )
+            self._save(player_id, player)
+
         self._players[player_id] = player
         return player
+
+    def _deserialize_player(
+        self,
+        stored: Mapping[str, Any],
+    ) -> PlayerCollection:
+        raw_currencies = stored.get("currencies", {})
+        raw_characters = stored.get("characters", {})
+
+        if not isinstance(raw_currencies, Mapping):
+            raise GachaError("Stored currencies must be an object.")
+        if not isinstance(raw_characters, Mapping):
+            raise GachaError("Stored characters must be an object.")
+
+        currencies = {
+            str(currency): int(amount)
+            for currency, amount in raw_currencies.items()
+        }
+        characters = {
+            str(character_id): int(copies)
+            for character_id, copies in raw_characters.items()
+            if str(character_id) in self._content.characters
+        }
+
+        return PlayerCollection(
+            currencies=currencies,
+            characters=characters,
+        )
+
+    def _save(
+        self,
+        player_id: str,
+        player: PlayerCollection,
+    ) -> None:
+        if self._state_store is None:
+            return
+
+        self._state_store.save(
+            self._STATE_NAMESPACE,
+            player_id,
+            {
+                "currencies": dict(player.currencies),
+                "characters": dict(player.characters),
+            },
+        )
 
     def grant_currency(
         self,
@@ -87,6 +142,7 @@ class GachaEngine:
         with self._lock:
             player = self._player(player_id)
             player.currencies[currency] = player.currencies.get(currency, 0) + amount
+            self._save(player_id, player)
             return player.currencies[currency]
 
     def draw(
@@ -134,6 +190,8 @@ class GachaEngine:
                         "copies": previous + 1,
                     }
                 )
+
+            self._save(player_id, player)
 
             return {
                 "gacha_id": pool.id,
