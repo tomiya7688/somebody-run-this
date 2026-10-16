@@ -4,21 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
-  const serverUrl = String.fromEnvironment(
+  const defaultServerUrl = String.fromEnvironment(
     'FX_CHANNEL_SERVER_URL',
     defaultValue: 'http://127.0.0.1:8787',
   );
 
-  runApp(OperatorApp(serverUrl: serverUrl));
+  runApp(OperatorApp(defaultServerUrl: defaultServerUrl));
 }
 
 class OperatorApp extends StatelessWidget {
   const OperatorApp({
     super.key,
-    required this.serverUrl,
+    required this.defaultServerUrl,
   });
 
-  final String serverUrl;
+  final String defaultServerUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +29,7 @@ class OperatorApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
       ),
-      home: OperatorHome(serverUrl: serverUrl),
+      home: OperatorHome(defaultServerUrl: defaultServerUrl),
     );
   }
 }
@@ -37,28 +37,36 @@ class OperatorApp extends StatelessWidget {
 class OperatorHome extends StatefulWidget {
   const OperatorHome({
     super.key,
-    required this.serverUrl,
+    required this.defaultServerUrl,
   });
 
-  final String serverUrl;
+  final String defaultServerUrl;
 
   @override
   State<OperatorHome> createState() => _OperatorHomeState();
 }
 
 class _OperatorHomeState extends State<OperatorHome> {
+  late final _serverController =
+      TextEditingController(text: widget.defaultServerUrl);
   final _tokenController = TextEditingController();
   Map<String, dynamic>? _status;
   String? _error;
 
   @override
   void dispose() {
+    _serverController.dispose();
     _tokenController.dispose();
     super.dispose();
   }
 
   Future<void> _loadStatus() async {
-    final base = widget.serverUrl.replaceAll(RegExp(r'/+$'), '');
+    final base = _serverController.text.trim().replaceAll(RegExp(r'/+$'), '');
+    if (base.isEmpty) {
+      setState(() => _error = 'Server URLを入力してください。');
+      return;
+    }
+
     try {
       final response = await http.get(
         Uri.parse('$base/api/operator/status'),
@@ -90,6 +98,14 @@ class _OperatorHomeState extends State<OperatorHome> {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          TextField(
+            controller: _serverController,
+            decoration: const InputDecoration(
+              labelText: 'Server URL',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _tokenController,
             obscureText: true,
