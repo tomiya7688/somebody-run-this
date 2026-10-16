@@ -1,0 +1,9 @@
+id: standard_character
+name: スタンダードキャラガチャ
+currency: premium_gem
+cost: 300
+entries:
+  - character: analyst_mika
+    weight: 5
+  - character: rookie_aki
+    weight: 95
