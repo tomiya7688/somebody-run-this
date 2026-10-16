@@ -18,47 +18,64 @@ fx_channel/config/operator.yaml
 
 ---
 
-# 起動するものは3つです
+# 配布物は3系統です
 
-fx_channel は、ユーザー用アプリと運営用アプリを同じ実行ファイルにしません。
+fx_channel は次を別々に配布します。
 
 ```text
-fx-channel-server    バックエンド
-fx-channel-user      プレイヤー用アプリ
-fx-channel-operator  運営者用アプリ
+Server Bundle      Python/FastAPIを自己完結化したサーバー
+User App           Flutter製 Windows EXE / Android APK / Web
+Operator App       Flutter製 運営専用アプリ
 ```
 
 ## 1. 運営トークンを設定
 
+Linux:
+
 ```bash
 export FX_CHANNEL_OPERATOR_TOKEN="十分に長いランダムな値"
+```
+
+Windows Server PowerShell:
+
+```powershell
+$env:FX_CHANNEL_OPERATOR_TOKEN = "十分に長いランダムな値"
 ```
 
 トークンそのものは `operator.yaml` やGitへ保存しません。
 
 ## 2. サーバーを起動
 
+正式運営ではReleaseのサーバーバンドルを展開し、OS別の起動スクリプトを使います。
+
+開発環境では：
+
 ```bash
 fx-channel-server --operator config/operator.yaml --content content
 ```
 
-デフォルトは `127.0.0.1:8787` です。
+## 3. 運営用アプリ
 
-外部公開する場合は、TLS・リバースプロキシ・ファイアウォール等を運営環境に合わせて構成してください。
+運営アプリはFlutter製の別アプリです。
 
-## 3. 運営用アプリを起動
+- Windows x64版
+- Linux x64版
 
-```bash
-cp config/operator_frontend.example.yaml config/operator_frontend.yaml
+をユーザーアプリとは別に配布します。
 
-fx-channel-operator \
-  --server http://127.0.0.1:8787 \
-  --frontend config/operator_frontend.yaml
-```
+Operator Tokenはアプリへ埋め込まず、運営者が実行時に入力します。
 
-運営用アプリはOperator APIのみを利用します。
+## ユーザー用アプリ
 
-**プレイヤー用アプリとは起動ポイントもGUIもApplication Portも別です。**
+ユーザー向けには、
+
+- Windows x64 EXE
+- Android arm64 APK
+- 任意のWeb版
+
+を用意します。
+
+Web版をサーバーへ同梱した場合は、標準では `/play/` から公開できます。
 
 ---
 
