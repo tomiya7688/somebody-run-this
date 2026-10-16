@@ -1,0 +1,15 @@
+id: operator_control_panel
+name: Operator Control Panel
+
+design:
+  concept: "運営作業向け。可読性・一覧性・誤操作防止を最優先"
+  mobile_first: false
+  density: compact
+  confirmation_for_destructive_actions: true
+
+components:
+  status_panels: prominent
+  tables: dense
+  forms: explicit
+  destructive_actions: guarded
+  motion: minimal
