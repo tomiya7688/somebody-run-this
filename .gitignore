@@ -1,0 +1,8 @@
+# Operator-local configuration
+fx_channel/config/operator.yaml
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
