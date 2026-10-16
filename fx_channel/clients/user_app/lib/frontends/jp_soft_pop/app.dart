@@ -75,10 +75,9 @@ class _AppShellState extends State<_AppShell> {
         service: widget.service,
         playerId: widget.playerId,
       ),
-      const _PlaceholderPage(
-        icon: Icons.auto_awesome_rounded,
-        title: 'ガチャ',
-        message: 'ガチャ機能を準備中です。',
+      _GachaPage(
+        service: widget.service,
+        playerId: widget.playerId,
       ),
       const _PlaceholderPage(
         icon: Icons.emoji_events_rounded,
@@ -519,14 +518,248 @@ class _CharacterPageState extends State<_CharacterPage> {
               leading: CircleAvatar(child: Text(character.rarity)),
               title: Text(character.name),
               subtitle: Text(
-                character.skillIds.isEmpty
-                    ? 'スキルなし'
-                    : 'スキル: ${character.skillIds.join(", ")}',
+                [
+                  '所持: ${character.copies}',
+                  character.skillIds.isEmpty
+                      ? 'スキルなし'
+                      : 'スキル: ${character.skillIds.join(", ")}',
+                ].join(' / '),
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+
+class _GachaPage extends StatefulWidget {
+  const _GachaPage({
+    required this.service,
+    required this.playerId,
+  });
+
+  final UserService service;
+  final String playerId;
+
+  @override
+  State<_GachaPage> createState() => _GachaPageState();
+}
+
+class _GachaPageState extends State<_GachaPage> {
+  HomeView? _home;
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final home = await widget.service.loadHome(widget.playerId);
+      if (!mounted) return;
+      setState(() {
+        _home = home;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    }
+  }
+
+  Future<void> _draw(GachaPoolView pool, int count) async {
+    setState(() => _busy = true);
+    try {
+      final result = await widget.service.drawGacha(
+        playerId: widget.playerId,
+        gachaId: pool.id,
+        count: count,
+      );
+      if (!mounted) return;
+
+      if (!result.ok) {
+        _showMessage(result.message);
+        return;
+      }
+
+      final rows = (result.data['results'] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>();
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text('${count}回ガチャ結果'),
+            content: SizedBox(
+              width: 420,
+              child: ListView(
+                shrinkWrap: true,
+                children: rows.map((row) {
+                  final isNew = row['is_new'] == true;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      child: Text(row['rarity'].toString()),
+                    ),
+                    title: Text(row['name'].toString()),
+                    subtitle: Text(
+                      isNew
+                          ? 'NEW!'
+                          : '所持数 ${row['copies']}',
+                    ),
+                  );
+                }).toList(growable: false),
+              ),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+
+      await _reload();
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  bool _canDraw(GachaPoolView pool, int count) {
+    final balance = _home?.wallet[pool.currency] ?? 0;
+    return !_busy && balance >= pool.cost * count;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final home = _home;
+
+    if (home == null && _error == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(
+            'ガチャ',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          if (_error != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('接続エラー: $_error'),
+              ),
+            ),
+          if (home != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: home.wallet.entries
+                      .map(
+                        (entry) => Chip(
+                          avatar: const Icon(Icons.diamond_rounded, size: 18),
+                          label: Text('${entry.key}: ${entry.value}'),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ),
+            ),
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(14),
+                child: Text(
+                  '有償通貨の購入処理はまだ未接続です。'
+                  '現在は運営アプリから付与してテストできます。',
+                ),
+              ),
+            ),
+            ...home.gachaPools.map(
+              (pool) => Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        pool.name,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text('1回 ${pool.cost} ${pool.currency}'),
+                      const SizedBox(height: 8),
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text('排出率'),
+                        children: pool.entries
+                            .map(
+                              (entry) => ListTile(
+                                dense: true,
+                                title: Text(
+                                  '${entry.rarity}  ${entry.name}',
+                                ),
+                                trailing: Text(
+                                  '${(entry.probability * 100).toStringAsFixed(2)}%',
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _canDraw(pool, 1)
+                                  ? () => _draw(pool, 1)
+                                  : null,
+                              child: const Text('1回'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.tonal(
+                              onPressed: _canDraw(pool, 10)
+                                  ? () => _draw(pool, 10)
+                                  : null,
+                              child: const Text('10回'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -560,6 +793,13 @@ class _BalanceCard extends StatelessWidget {
             _Metric(
               label: '含み損益',
               value: home.unrealizedPnl.toStringAsFixed(0),
+            ),
+            SizedBox(
+              width: 260,
+              child: SelectableText(
+                'Player ID: ${home.playerId}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           ],
         ),
