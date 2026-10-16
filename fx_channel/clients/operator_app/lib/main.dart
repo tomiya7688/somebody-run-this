@@ -205,6 +205,83 @@ class _OperatorHomeState extends State<OperatorHome> {
     }
   }
 
+
+  Future<void> _advanceSeason() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('次シーズンへ進めますか？'),
+          content: const Text(
+            'reset_balance が有効な運営設定では、'
+            '現在の取引残高・ポジション・ランキングが'
+            '新シーズン用に切り替わります。'
+            'キャラやガチャ通貨は保持されます。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('次シーズンへ'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final base = _baseUrl;
+    if (base.isEmpty) {
+      setState(() => _error = 'Server URLを入力してください。');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final response = await http.post(
+        Uri.parse('$base/api/operator/action'),
+        headers: _operatorHeaders,
+        body: jsonEncode({
+          'action': 'advance_season',
+          'payload': <String, dynamic>{},
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw StateError(
+          'HTTP ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      if (decoded['ok'] != true) {
+        throw StateError(decoded['message'].toString());
+      }
+
+      final data = decoded['data'] as Map<String, dynamic>;
+      final season = data['season'] as Map<String, dynamic>;
+      if (!mounted) return;
+
+      setState(() => _error = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '新シーズン ${season['id']} を開始しました。',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -239,6 +316,12 @@ class _OperatorHomeState extends State<OperatorHome> {
             onPressed: _busy ? null : _backupServerState,
             icon: const Icon(Icons.backup_rounded),
             label: const Text('サーバー状態をバックアップ'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _advanceSeason,
+            icon: const Icon(Icons.skip_next_rounded),
+            label: const Text('次シーズンへ進める'),
           ),
           if (_status != null)
             Padding(
