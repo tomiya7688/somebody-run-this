@@ -79,10 +79,9 @@ class _AppShellState extends State<_AppShell> {
         service: widget.service,
         playerId: widget.playerId,
       ),
-      const _PlaceholderPage(
-        icon: Icons.emoji_events_rounded,
-        title: 'ランキング',
-        message: 'シーズンランキングを準備中です。',
+      _RankingPage(
+        service: widget.service,
+        playerId: widget.playerId,
       ),
     ];
 
@@ -908,6 +907,118 @@ class _GachaPageState extends State<_GachaPage> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+
+class _RankingPage extends StatefulWidget {
+  const _RankingPage({
+    required this.service,
+    required this.playerId,
+  });
+
+  final UserService service;
+  final String playerId;
+
+  @override
+  State<_RankingPage> createState() => _RankingPageState();
+}
+
+class _RankingPageState extends State<_RankingPage> {
+  List<RankingEntryView>? _ranking;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final ranking = await widget.service.loadRanking(widget.playerId);
+      if (!mounted) return;
+      setState(() {
+        _ranking = ranking;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    }
+  }
+
+  String _shortId(String value) {
+    if (value.length <= 10) return value;
+    return '${value.substring(0, 6)}…${value.substring(value.length - 4)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ranking = _ranking;
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(
+            'ランキング',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 4),
+          const Text('現在の評価額でサーバーが順位を計算します。'),
+          const SizedBox(height: 8),
+          if (_error != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('接続エラー: $_error'),
+              ),
+            )
+          else if (ranking == null)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (ranking.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(18),
+                child: Text('まだランキング参加者はいません。'),
+              ),
+            )
+          else
+            ...ranking.map(
+              (entry) {
+                final isMe = entry.playerId == widget.playerId;
+                return Card(
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      child: Text(entry.rank.toString()),
+                    ),
+                    title: Text(
+                      isMe
+                          ? 'あなた'
+                          : _shortId(entry.playerId),
+                    ),
+                    subtitle: Text(
+                      '利用可能 ${entry.availableBalance.toStringAsFixed(0)} / '
+                      '含み損益 ${entry.unrealizedPnl.toStringAsFixed(0)}',
+                    ),
+                    trailing: Text(
+                      entry.equity.toStringAsFixed(0),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
