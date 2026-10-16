@@ -158,6 +158,51 @@ class FxChannelRuntime:
             "gacha_pools": self._gacha.public_pools(),
         }
 
+    def user_ranking(self, limit: int = 100) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 1000))
+        prices = self._prices()
+
+        player_ids = set(
+            self._state_store.list_player_ids("trading")
+        )
+        player_ids.update(
+            self._state_store.list_player_ids("gacha")
+        )
+
+        rows: list[dict[str, Any]] = []
+        for player_id in player_ids:
+            portfolio = self._trading.snapshot(
+                player_id=player_id,
+                prices=prices,
+            )
+            rows.append(
+                {
+                    "player_id": player_id,
+                    "equity": float(portfolio["equity"]),
+                    "available_balance": float(
+                        portfolio["available_balance"]
+                    ),
+                    "unrealized_pnl": float(
+                        portfolio["unrealized_pnl"]
+                    ),
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (
+                -float(row["equity"]),
+                str(row["player_id"]),
+            )
+        )
+
+        return [
+            {
+                "rank": index,
+                **row,
+            }
+            for index, row in enumerate(rows[:limit], start=1)
+        ]
+
     def user_action(
         self,
         player_id: str,
