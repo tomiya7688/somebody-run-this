@@ -146,6 +146,17 @@ class HttpUserGateway implements UserGateway {
         .map(CharacterView.fromJson)
         .toList(growable: false);
 
+    final walletRaw = decoded['wallet'] as Map<String, dynamic>;
+    final wallet = {
+      for (final entry in walletRaw.entries)
+        entry.key: (entry.value as num).toInt(),
+    };
+
+    final gachaPools = (decoded['gacha_pools'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(GachaPoolView.fromJson)
+        .toList(growable: false);
+
     return HomeView(
       playerId: player['player_id'] as String,
       displayName: player['display_name'] as String,
@@ -156,6 +167,8 @@ class HttpUserGateway implements UserGateway {
       quotes: quotes,
       positions: positions,
       characters: characters,
+      wallet: wallet,
+      gachaPools: gachaPools,
     );
   }
 
