@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .auth import UserAuthError, UserSessionManager
+from .auth import UserAuthError, UserSessionManager, load_or_create_session_secret
 from .config import load_operator_config
 from .runtime import FxChannelRuntime
 
@@ -31,6 +31,7 @@ def create_app(
     runtime: FxChannelRuntime,
     *,
     operator_token: str,
+    user_session_secret: bytes | None = None,
     cors_origins: list[str] | None = None,
     web_user_dir: str | Path | None = None,
     web_user_route: str = "/play",
@@ -39,7 +40,11 @@ def create_app(
         title="fx_channel server",
         version="0.1.0",
     )
-    user_sessions = UserSessionManager.from_operator_token(operator_token)
+    user_sessions = (
+        UserSessionManager(user_session_secret)
+        if user_session_secret is not None
+        else UserSessionManager.from_operator_token(operator_token)
+    )
 
     origins = list(cors_origins or [])
     if origins:
@@ -174,9 +179,14 @@ def main() -> None:
         content_root=args.content,
         data_root=data_root,
     )
+    user_session_secret = load_or_create_session_secret(
+        data_root / "data" / "user_session_secret.bin"
+    )
+
     app = create_app(
         runtime,
         operator_token=operator_token,
+        user_session_secret=user_session_secret,
         cors_origins=cors_origins,
         web_user_dir=args.web_user,
         web_user_route=web_user_route,
