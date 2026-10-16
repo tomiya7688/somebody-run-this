@@ -91,6 +91,14 @@ def create_app(
         player_id = require_user(authorization)
         return runtime.user_home(player_id)
 
+    @app.get("/api/user/ranking")
+    def user_ranking(
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_user(authorization)
+        return {"ranking": runtime.user_ranking(limit=limit)}
+
     @app.post("/api/user/action")
     def user_action(
         request: UserActionRequest,
