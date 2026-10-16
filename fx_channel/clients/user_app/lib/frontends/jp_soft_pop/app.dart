@@ -198,6 +198,7 @@ class _HomePageState extends State<_HomePage> {
               ),
             ),
           if (_home != null) ...[
+            _SeasonCard(season: _home!.season),
             _BalanceCard(home: _home!),
             const SizedBox(height: 8),
             Text(
@@ -1027,6 +1028,39 @@ class _RankingPageState extends State<_RankingPage> {
               },
             ),
         ],
+      ),
+    );
+  }
+}
+
+
+class _SeasonCard extends StatelessWidget {
+  const _SeasonCard({required this.season});
+
+  final SeasonView season;
+
+  String _formatEnd() {
+    final raw = season.endAtIso;
+    if (raw == null) return '期限なし';
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+
+    final local = parsed.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}/${two(local.month)}/${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.calendar_month_rounded),
+        title: Text(
+          season.enabled ? season.id : '常設シーズン',
+        ),
+        subtitle: Text('終了: ${_formatEnd()}'),
       ),
     );
   }
