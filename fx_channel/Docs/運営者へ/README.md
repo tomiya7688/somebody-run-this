@@ -15,6 +15,50 @@ fx_channel/config/operator.yaml
 
 ---
 
+# 起動するものは3つです
+
+fx_channel は、ユーザー用アプリと運営用アプリを同じ実行ファイルにしません。
+
+```text
+fx-channel-server    バックエンド
+fx-channel-user      プレイヤー用アプリ
+fx-channel-operator  運営者用アプリ
+```
+
+## 1. 運営トークンを設定
+
+```bash
+export FX_CHANNEL_OPERATOR_TOKEN="十分に長いランダムな値"
+```
+
+トークンそのものは `operator.yaml` やGitへ保存しません。
+
+## 2. サーバーを起動
+
+```bash
+fx-channel-server --operator config/operator.yaml --content content
+```
+
+デフォルトは `127.0.0.1:8787` です。
+
+外部公開する場合は、TLS・リバースプロキシ・ファイアウォール等を運営環境に合わせて構成してください。
+
+## 3. 運営用アプリを起動
+
+```bash
+cp config/operator_frontend.example.yaml config/operator_frontend.yaml
+
+fx-channel-operator \
+  --server http://127.0.0.1:8787 \
+  --frontend config/operator_frontend.yaml
+```
+
+運営用アプリはOperator APIのみを利用します。
+
+**プレイヤー用アプリとは起動ポイントもGUIもApplication Portも別です。**
+
+---
+
 # まず決めること：相場をどこから持ってくるか
 
 最重要設定はこれです。
