@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -7,11 +9,13 @@ from .content import ContentRegistry, load_content_registry
 from .gacha import GachaEngine, GachaError
 from .market import PriceProvider, build_price_provider
 from .persistence import PlayerStateStore, build_player_state_store
+from .skill_api import MarketSnapshot, PricePoint
+from .skills import SkillEngine, SkillError
 from .trading import TradingEngine, TradingError
 
 
 class FxChannelRuntime:
-    """Backend-only runtime for market, trading, content, economy, and operator state."""
+    """Backend-only runtime for all authoritative game state and rules."""
 
     def __init__(
         self,
@@ -28,6 +32,11 @@ class FxChannelRuntime:
             operator_config.get("storage", {}),
             base_dir=data_root,
         )
+
+        self._market_history: dict[str, deque[PricePoint]] = {
+            symbol: deque(maxlen=5000)
+            for symbol in self._symbols
+        }
 
         game_config = operator_config.get("game", {})
         self._trading = TradingEngine(
@@ -61,13 +70,48 @@ class FxChannelRuntime:
             starting_characters=starting_characters,
             state_store=self._state_store,
         )
+        self._skills = SkillEngine(
+            content=self._content,
+            state_store=self._state_store,
+        )
 
     def _prices(self) -> dict[str, float]:
         raw = self._price_provider.get_prices(self._symbols)
-        return {
+        prices = {
             symbol: float(raw[symbol])
             for symbol in self._symbols
         }
+
+        timestamp = time.time()
+        for symbol, price in prices.items():
+            self._market_history[symbol].append(
+                PricePoint(timestamp=timestamp, price=price)
+            )
+
+        return prices
+
+    def _market_snapshot(
+        self,
+        prices: Mapping[str, float],
+    ) -> MarketSnapshot:
+        return MarketSnapshot.readonly(
+            dict(prices),
+            {
+                symbol: tuple(history)
+                for symbol, history in self._market_history.items()
+            },
+        )
+
+    def _owned_skill_ids(self, player_id: str) -> set[str]:
+        collection = self._gacha.snapshot(player_id)
+        owned: set[str] = set()
+
+        for row in collection["characters"]:
+            character = self._content.characters.get(str(row["id"]))
+            if character is not None:
+                owned.update(character.skills)
+
+        return owned
 
     def user_quotes(self) -> list[dict[str, Any]]:
         prices = self._prices()
@@ -83,6 +127,7 @@ class FxChannelRuntime:
             prices=prices,
         )
         collection = self._gacha.snapshot(player_id)
+        owned_skill_ids = self._owned_skill_ids(player_id)
 
         return {
             "player": {
@@ -99,6 +144,17 @@ class FxChannelRuntime:
             "portfolio": portfolio,
             "wallet": collection["currencies"],
             "characters": collection["characters"],
+            "skills": [
+                {
+                    "id": skill.id,
+                    "name": skill.name,
+                    "type": skill.type,
+                    "description": skill.description,
+                    "cooldown_seconds": skill.cooldown_seconds,
+                }
+                for skill in self._content.skills.values()
+                if skill.id in owned_skill_ids
+            ],
             "gacha_pools": self._gacha.public_pools(),
         }
 
@@ -206,13 +262,50 @@ class FxChannelRuntime:
                     "data": result,
                 }
 
+            if action == "use_skill":
+                skill_id = str(payload.get("skill_id", "")).strip()
+                symbol = str(payload.get("symbol", "")).strip().upper()
+
+                if symbol not in self._symbols:
+                    raise SkillError(f"Unknown symbol: {symbol}")
+                if skill_id not in self._owned_skill_ids(player_id):
+                    raise SkillError(
+                        "You do not own a character with this skill."
+                    )
+
+                prices = self._prices()
+                result = self._skills.execute(
+                    player_id=player_id,
+                    skill_id=skill_id,
+                    symbol=symbol,
+                    market=self._market_snapshot(prices),
+                    public_game_data={
+                        "market_mode": self._config["market"]["mode"],
+                    },
+                )
+                return {
+                    "ok": True,
+                    "message": result.message,
+                    "data": {
+                        "title": result.title,
+                        "result": dict(result.data),
+                        "disclaimer": result.disclaimer,
+                    },
+                }
+
             return {
                 "ok": False,
                 "message": f"Unknown user action: {action!r}",
                 "data": {},
             }
 
-        except (TradingError, GachaError, ValueError, TypeError) as exc:
+        except (
+            TradingError,
+            GachaError,
+            SkillError,
+            ValueError,
+            TypeError,
+        ) as exc:
             return {
                 "ok": False,
                 "message": str(exc),
