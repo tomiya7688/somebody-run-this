@@ -8,9 +8,11 @@ class JpSoftPopApp extends StatelessWidget {
   const JpSoftPopApp({
     super.key,
     required this.service,
+    this.onChangeServer,
   });
 
   final UserService service;
+  final Future<void> Function()? onChangeServer;
 
   @override
   Widget build(BuildContext context) {
@@ -29,15 +31,22 @@ class JpSoftPopApp extends StatelessWidget {
           margin: EdgeInsets.all(8),
         ),
       ),
-      home: _HomePage(service: service),
+      home: _HomePage(
+        service: service,
+        onChangeServer: onChangeServer,
+      ),
     );
   }
 }
 
 class _HomePage extends StatefulWidget {
-  const _HomePage({required this.service});
+  const _HomePage({
+    required this.service,
+    required this.onChangeServer,
+  });
 
   final UserService service;
+  final Future<void> Function()? onChangeServer;
 
   @override
   State<_HomePage> createState() => _HomePageState();
@@ -82,14 +91,21 @@ class _HomePageState extends State<_HomePage> {
         title: const Text('fx_channel'),
         actions: [
           IconButton(
+            tooltip: '更新',
             onPressed: _reload,
             icon: const Icon(Icons.refresh_rounded),
           ),
+          if (widget.onChangeServer != null)
+            IconButton(
+              tooltip: '接続先サーバー',
+              onPressed: () => widget.onChangeServer!(),
+              icon: const Icon(Icons.dns_rounded),
+            ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: const NavigationBar(
         selectedIndex: 0,
-        destinations: const [
+        destinations: [
           NavigationDestination(
             icon: Icon(Icons.home_rounded),
             label: 'ホーム',
