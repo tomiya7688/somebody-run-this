@@ -71,6 +71,7 @@ class TradingEngine:
         max_leverage: float | int | str,
         allow_negative_balance: bool,
         state_store: PlayerStateStore | None = None,
+        state_namespace: str = "trading",
     ) -> None:
         self._symbols = frozenset(symbols)
         self._starting_balance = _decimal(
@@ -80,6 +81,7 @@ class TradingEngine:
         self._max_leverage = _decimal(max_leverage, field_name="max_leverage")
         self._allow_negative_balance = bool(allow_negative_balance)
         self._state_store = state_store
+        self._state_namespace = state_namespace
         self._players: dict[str, PlayerPortfolio] = {}
         self._lock = threading.RLock()
 
@@ -93,7 +95,7 @@ class TradingEngine:
             return player
 
         stored = (
-            self._state_store.load(self._STATE_NAMESPACE, player_id)
+            self._state_store.load(self._state_namespace, player_id)
             if self._state_store is not None
             else None
         )
@@ -151,7 +153,7 @@ class TradingEngine:
             return
 
         self._state_store.save(
-            self._STATE_NAMESPACE,
+            self._state_namespace,
             player.player_id,
             {
                 "cash": str(player.cash),
