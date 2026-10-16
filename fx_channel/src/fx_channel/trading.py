@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
+from .persistence import PlayerStateStore
+
 
 class TradingError(ValueError):
     """Raised when a player trading command is invalid."""
@@ -53,11 +55,13 @@ class PlayerPortfolio:
 
 class TradingEngine:
     """
-    In-memory trading domain for the first playable server.
+    Server-authoritative trading domain.
 
-    Prices are inputs from the Market layer. The trading engine never mutates
-    the market and therefore cannot influence REAL or SIMULATED prices.
+    Prices are read-only inputs from the Market layer. The engine may persist
+    player state, but it has no API to alter REAL or SIMULATED market prices.
     """
+
+    _STATE_NAMESPACE = "trading"
 
     def __init__(
         self,
@@ -66,6 +70,7 @@ class TradingEngine:
         starting_balance: float | int | str,
         max_leverage: float | int | str,
         allow_negative_balance: bool,
+        state_store: PlayerStateStore | None = None,
     ) -> None:
         self._symbols = frozenset(symbols)
         self._starting_balance = _decimal(
@@ -74,6 +79,7 @@ class TradingEngine:
         )
         self._max_leverage = _decimal(max_leverage, field_name="max_leverage")
         self._allow_negative_balance = bool(allow_negative_balance)
+        self._state_store = state_store
         self._players: dict[str, PlayerPortfolio] = {}
         self._lock = threading.RLock()
 
@@ -83,13 +89,85 @@ class TradingEngine:
             raise TradingError("player_id is required.")
 
         player = self._players.get(player_id)
-        if player is None:
+        if player is not None:
+            return player
+
+        stored = (
+            self._state_store.load(self._STATE_NAMESPACE, player_id)
+            if self._state_store is not None
+            else None
+        )
+        if stored is not None:
+            player = self._deserialize_player(player_id, stored)
+        else:
             player = PlayerPortfolio(
                 player_id=player_id,
                 cash=self._starting_balance,
             )
-            self._players[player_id] = player
+
+        self._players[player_id] = player
         return player
+
+    def _deserialize_player(
+        self,
+        player_id: str,
+        stored: Mapping[str, Any],
+    ) -> PlayerPortfolio:
+        cash = _decimal(stored.get("cash"), field_name="stored cash")
+        positions: dict[str, Position] = {}
+
+        raw_positions = stored.get("positions", [])
+        if not isinstance(raw_positions, list):
+            raise TradingError("Stored positions must be a list.")
+
+        for raw in raw_positions:
+            if not isinstance(raw, Mapping):
+                raise TradingError("Stored position must be an object.")
+
+            position = Position(
+                id=str(raw["id"]),
+                symbol=str(raw["symbol"]),
+                side=str(raw["side"]),
+                margin=_decimal(raw["margin"], field_name="stored margin"),
+                leverage=_decimal(
+                    raw["leverage"],
+                    field_name="stored leverage",
+                ),
+                entry_price=_decimal(
+                    raw["entry_price"],
+                    field_name="stored entry_price",
+                ),
+            )
+            positions[position.id] = position
+
+        return PlayerPortfolio(
+            player_id=player_id,
+            cash=cash,
+            positions=positions,
+        )
+
+    def _save(self, player: PlayerPortfolio) -> None:
+        if self._state_store is None:
+            return
+
+        self._state_store.save(
+            self._STATE_NAMESPACE,
+            player.player_id,
+            {
+                "cash": str(player.cash),
+                "positions": [
+                    {
+                        "id": position.id,
+                        "symbol": position.symbol,
+                        "side": position.side,
+                        "margin": str(position.margin),
+                        "leverage": str(position.leverage),
+                        "entry_price": str(position.entry_price),
+                    }
+                    for position in player.positions.values()
+                ],
+            },
+        )
 
     def open_position(
         self,
@@ -137,6 +215,7 @@ class TradingEngine:
             )
             player.cash -= margin_value
             player.positions[position.id] = position
+            self._save(player)
             return position
 
     def close_position(
@@ -165,6 +244,8 @@ class TradingEngine:
 
             if not self._allow_negative_balance and player.cash < 0:
                 player.cash = Decimal("0")
+
+            self._save(player)
 
             return {
                 "position": position,
