@@ -22,6 +22,9 @@ market:
     # 価格更新間隔
     tick_seconds: 5
 
+    # シンボルごとの初期価格。未指定シンボルはこの値から開始
+    default_start_price: 100.0
+
     # 基本ボラティリティ
     base_volatility: 0.001
 
@@ -36,6 +39,9 @@ market:
 
     # APIキーそのものではなく環境変数名
     api_key_env: "FX_CHANNEL_API_KEY"
+
+    # APIキーを送るHTTPヘッダー名
+    api_key_header: "X-API-Key"
 
     poll_seconds: 10
     timeout_seconds: 5
