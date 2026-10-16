@@ -1,17 +1,17 @@
 # fx_channel official distribution targets
-#
-# "supported" means the release pipeline is expected to produce and test an
-# artifact for this target before that release is called supported.
 
 user:
   windows_x64:
+    framework: flutter
     os: windows
     architecture: x86_64
     minimum_os: "Windows 10"
+    entrypoint: "fx_channel_user.exe"
     artifact: "fx-channel-user-windows-x64.zip"
     status: target
 
   android_arm64:
+    framework: flutter
     os: android
     architecture: arm64-v8a
     minimum_os: "Android 9.0"
@@ -19,15 +19,25 @@ user:
     artifact: "fx-channel-user-android-arm64.apk"
     status: target
 
+  web:
+    framework: flutter
+    os: web
+    architecture: wasm_or_js
+    artifact: "fx-channel-user-web.zip"
+    server_mount: "/play/"
+    status: target
+
 operator:
   windows_x64:
+    framework: flutter
     os: windows
     architecture: x86_64
-    minimum_os: "Windows 10"
+    entrypoint: "fx_channel_operator.exe"
     artifact: "fx-channel-operator-windows-x64.zip"
     status: target
 
   linux_x64:
+    framework: flutter
     os: linux
     architecture: x86_64
     artifact: "fx-channel-operator-linux-x64.tar.gz"
@@ -35,6 +45,8 @@ operator:
 
 server:
   linux_x64:
+    language: python
+    framework: fastapi
     os: linux
     architecture: x86_64
     intended_for:
@@ -45,6 +57,8 @@ server:
     status: target
 
   linux_arm64:
+    language: python
+    framework: fastapi
     os: linux
     architecture: aarch64
     intended_for:
@@ -55,6 +69,8 @@ server:
     status: target
 
   windows_x64:
+    language: python
+    framework: fastapi
     os: windows
     architecture: x86_64
     intended_for:
