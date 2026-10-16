@@ -1,0 +1,102 @@
+name: Build Server Bundles
+
+on:
+  push:
+    paths:
+      - "fx_channel/src/**"
+      - "fx_channel/content/**"
+      - "fx_channel/config/operator.example.yaml"
+      - "fx_channel/deploy/server/**"
+      - "fx_channel/pyproject.toml"
+      - ".github/workflows/build-server.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build executable
+        working-directory: fx_channel
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+          pyinstaller --clean --onefile --name fx-channel-server deploy/server_entry.py
+      - name: Assemble bundle
+        working-directory: fx_channel
+        run: |
+          mkdir -p bundle/config bundle/content
+          cp dist/fx-channel-server bundle/
+          cp config/operator.example.yaml bundle/config/
+          cp -R content/. bundle/content/
+          cp deploy/server/linux/start-server.sh bundle/start-server.sh
+          cp deploy/server/README-FIRST.md bundle/README-FIRST.md
+          chmod +x bundle/fx-channel-server bundle/start-server.sh
+          tar -czf ../fx-channel-server-linux-x64.tar.gz -C bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-server-linux-x64
+          path: fx-channel-server-linux-x64.tar.gz
+
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build executable
+        working-directory: fx_channel
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+          pyinstaller --clean --onefile --name fx-channel-server deploy/server_entry.py
+      - name: Assemble bundle
+        working-directory: fx_channel
+        run: |
+          mkdir -p bundle/config bundle/content
+          cp dist/fx-channel-server bundle/
+          cp config/operator.example.yaml bundle/config/
+          cp -R content/. bundle/content/
+          cp deploy/server/linux/start-server.sh bundle/start-server.sh
+          cp deploy/server/README-FIRST.md bundle/README-FIRST.md
+          chmod +x bundle/fx-channel-server bundle/start-server.sh
+          tar -czf ../fx-channel-server-linux-arm64.tar.gz -C bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-server-linux-arm64
+          path: fx-channel-server-linux-arm64.tar.gz
+
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build executable
+        working-directory: fx_channel
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+          pyinstaller --clean --onefile --name fx-channel-server deploy/server_entry.py
+      - name: Assemble bundle
+        working-directory: fx_channel
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force bundle\config | Out-Null
+          New-Item -ItemType Directory -Force bundle\content | Out-Null
+          Copy-Item dist\fx-channel-server.exe bundle\
+          Copy-Item config\operator.example.yaml bundle\config\
+          Copy-Item content\* bundle\content\ -Recurse
+          Copy-Item deploy\server\windows\start-server.ps1 bundle\start-server.ps1
+          Copy-Item deploy\server\README-FIRST.md bundle\README-FIRST.md
+          Compress-Archive -Path bundle\* -DestinationPath ..\fx-channel-server-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-server-windows-x64
+          path: fx-channel-server-windows-x64.zip
