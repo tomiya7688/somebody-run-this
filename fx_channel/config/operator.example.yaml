@@ -46,6 +46,15 @@ game:
   max_leverage: 25
   allow_negative_balance: false
 
+economy:
+  # 有償想定通貨は初期0。購入処理や運営付与から増やします。
+  starting_currencies:
+    premium_gem: 0
+
+  # 新規プレイヤーに最低1キャラを持たせる例
+  starting_characters:
+    - rookie_aki
+
 season:
   enabled: true
   duration_days: 7
