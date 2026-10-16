@@ -4,10 +4,37 @@ import base64
 import hashlib
 import hmac
 import secrets
+from pathlib import Path
 
 
 class UserAuthError(ValueError):
     """Raised when a user session token is invalid."""
+
+
+def load_or_create_session_secret(path: str | Path) -> bytes:
+    """Load a stable signing secret, creating it on first server start."""
+
+    secret_path = Path(path)
+    secret_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if secret_path.exists():
+        secret = secret_path.read_bytes()
+        if len(secret) < 32:
+            raise ValueError(
+                f"User session secret is too short: {secret_path}"
+            )
+        return secret
+
+    secret = secrets.token_bytes(32)
+    secret_path.write_bytes(secret)
+
+    try:
+        secret_path.chmod(0o600)
+    except OSError:
+        # Windows and some mounted filesystems do not implement POSIX modes.
+        pass
+
+    return secret
 
 
 class UserSessionManager:
