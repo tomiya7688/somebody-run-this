@@ -1,0 +1,33 @@
+id: jp_soft_pop
+name: JP Soft Pop
+
+design:
+  concept: "日本のスマホソシャゲ風の親しみやすさ + 見やすいFX情報UI + 少しポップ"
+  mobile_first: true
+  corner_radius: 16
+  spacing_scale: 8
+  shadow: soft
+
+palette:
+  background: "#F7F8FC"
+  surface: "#FFFFFF"
+  text_primary: "#252936"
+  text_secondary: "#697086"
+  accent_blue: "#66B8FF"
+  accent_pink: "#FF8FB8"
+  accent_yellow: "#FFD76A"
+  accent_mint: "#79DCC2"
+
+market:
+  # 日本のFX UIで馴染みやすい既定。
+  # 実装GUI側でアクセシビリティ設定により変更可能にする。
+  up_role: warm
+  down_role: cool
+  prioritize_numeric_readability: true
+
+components:
+  cards: rounded
+  buttons: rounded_large
+  character_presence: prominent
+  trade_controls: large_and_explicit
+  motion: light
