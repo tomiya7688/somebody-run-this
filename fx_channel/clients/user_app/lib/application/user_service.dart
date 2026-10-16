@@ -189,6 +189,32 @@ class HomeView {
   final List<GachaPoolView> gachaPools;
 }
 
+class RankingEntryView {
+  const RankingEntryView({
+    required this.rank,
+    required this.playerId,
+    required this.equity,
+    required this.availableBalance,
+    required this.unrealizedPnl,
+  });
+
+  factory RankingEntryView.fromJson(Map<String, dynamic> json) {
+    return RankingEntryView(
+      rank: (json['rank'] as num).toInt(),
+      playerId: json['player_id'] as String,
+      equity: (json['equity'] as num).toDouble(),
+      availableBalance: (json['available_balance'] as num).toDouble(),
+      unrealizedPnl: (json['unrealized_pnl'] as num).toDouble(),
+    );
+  }
+
+  final int rank;
+  final String playerId;
+  final double equity;
+  final double availableBalance;
+  final double unrealizedPnl;
+}
+
 class ActionResult {
   const ActionResult({
     required this.ok,
@@ -204,6 +230,7 @@ class ActionResult {
 abstract interface class UserGateway {
   Future<List<MarketQuote>> fetchQuotes();
   Future<HomeView> fetchHome(String playerId);
+  Future<List<RankingEntryView>> fetchRanking(String playerId);
 
   Future<ActionResult> postAction({
     required String playerId,
@@ -220,6 +247,9 @@ class UserService {
   Future<List<MarketQuote>> loadQuotes() => _gateway.fetchQuotes();
 
   Future<HomeView> loadHome(String playerId) => _gateway.fetchHome(playerId);
+
+  Future<List<RankingEntryView>> loadRanking(String playerId) =>
+      _gateway.fetchRanking(playerId);
 
   Future<ActionResult> placeOrder({
     required String playerId,
