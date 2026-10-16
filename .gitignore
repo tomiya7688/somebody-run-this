@@ -1,5 +1,6 @@
 # Operator-local configuration
 fx_channel/config/operator.yaml
+fx_channel/config/developer.yaml
 .env
 
 # Python
