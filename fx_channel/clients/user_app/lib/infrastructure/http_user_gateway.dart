@@ -178,6 +178,19 @@ class HttpUserGateway implements UserGateway {
     );
   }
 
+
+  @override
+  Future<List<RankingEntryView>> fetchRanking(String playerId) async {
+    final response = await _authorizedGet(_uri('/api/user/ranking'));
+    final decoded = await _decode(response);
+    final rows = decoded['ranking'] as List<dynamic>;
+
+    return rows
+        .cast<Map<String, dynamic>>()
+        .map(RankingEntryView.fromJson)
+        .toList(growable: false);
+  }
+
   @override
   Future<ActionResult> postAction({
     required String playerId,
