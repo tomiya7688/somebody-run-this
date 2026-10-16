@@ -2,110 +2,105 @@ from __future__ import annotations
 
 import argparse
 import hmac
-import json
 import os
-import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
+
+import uvicorn
+from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from .config import load_operator_config
 from .runtime import FxChannelRuntime
 
 
-def _json_bytes(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False).encode("utf-8")
+class UserActionRequest(BaseModel):
+    player_id: str = "guest"
+    action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def _read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
-    length = int(handler.headers.get("Content-Length", "0"))
-    if length <= 0:
-        return {}
-    raw = json.loads(handler.rfile.read(length).decode("utf-8"))
-    if not isinstance(raw, dict):
-        raise ValueError("JSON body must be an object.")
-    return raw
+class OperatorActionRequest(BaseModel):
+    action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def build_handler(runtime: FxChannelRuntime, operator_token: str):
-    class Handler(BaseHTTPRequestHandler):
-        def _send(self, status: int, payload: Any) -> None:
-            body = _json_bytes(payload)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+def create_app(
+    runtime: FxChannelRuntime,
+    *,
+    operator_token: str,
+    cors_origins: list[str] | None = None,
+    web_user_dir: str | Path | None = None,
+    web_user_route: str = "/play",
+) -> FastAPI:
+    app = FastAPI(
+        title="fx_channel server",
+        version="0.1.0",
+    )
 
-        def _operator_authorized(self) -> bool:
-            expected = f"Bearer {operator_token}"
-            actual = self.headers.get("Authorization", "")
-            return hmac.compare_digest(actual, expected)
+    origins = list(cors_origins or [])
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
 
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
+    def require_operator(authorization: str | None) -> None:
+        expected = f"Bearer {operator_token}"
+        actual = authorization or ""
+        if not hmac.compare_digest(actual, expected):
+            raise HTTPException(status_code=401, detail="Unauthorized")
 
-            if parsed.path == "/health":
-                self._send(200, {"ok": True})
-                return
+    @app.get("/health")
+    def health() -> dict[str, bool]:
+        return {"ok": True}
 
-            if parsed.path == "/api/user/quotes":
-                self._send(200, {"quotes": runtime.user_quotes()})
-                return
+    @app.get("/api/user/quotes")
+    def user_quotes() -> dict[str, Any]:
+        return {"quotes": runtime.user_quotes()}
 
-            if parsed.path == "/api/user/home":
-                query = urllib.parse.parse_qs(parsed.query)
-                player_id = query.get("player_id", ["guest"])[0]
-                self._send(200, runtime.user_home(player_id))
-                return
+    @app.get("/api/user/home")
+    def user_home(player_id: str = Query(default="guest")) -> dict[str, Any]:
+        return runtime.user_home(player_id)
 
-            if parsed.path == "/api/operator/status":
-                if not self._operator_authorized():
-                    self._send(401, {"ok": False, "message": "Unauthorized"})
-                    return
-                self._send(200, runtime.operator_status())
-                return
+    @app.post("/api/user/action")
+    def user_action(request: UserActionRequest) -> dict[str, Any]:
+        return runtime.user_action(
+            request.player_id,
+            request.action,
+            request.payload,
+        )
 
-            self._send(404, {"ok": False, "message": "Not found"})
+    @app.get("/api/operator/status")
+    def operator_status(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_operator(authorization)
+        return runtime.operator_status()
 
-        def do_POST(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
+    @app.post("/api/operator/action")
+    def operator_action(
+        request: OperatorActionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_operator(authorization)
+        return runtime.operator_action(request.action, request.payload)
 
-            try:
-                payload = _read_json(self)
-            except Exception as exc:
-                self._send(400, {"ok": False, "message": str(exc)})
-                return
+    if web_user_dir is not None:
+        web_path = Path(web_user_dir)
+        if web_path.is_dir():
+            app.mount(
+                web_user_route,
+                StaticFiles(directory=str(web_path), html=True),
+                name="user-web",
+            )
 
-            if parsed.path == "/api/user/action":
-                self._send(
-                    200,
-                    runtime.user_action(
-                        str(payload.get("player_id", "guest")),
-                        str(payload.get("action", "")),
-                        payload.get("payload", {}),
-                    ),
-                )
-                return
-
-            if parsed.path == "/api/operator/action":
-                if not self._operator_authorized():
-                    self._send(401, {"ok": False, "message": "Unauthorized"})
-                    return
-                self._send(
-                    200,
-                    runtime.operator_action(
-                        str(payload.get("action", "")),
-                        payload.get("payload", {}),
-                    ),
-                )
-                return
-
-            self._send(404, {"ok": False, "message": "Not found"})
-
-        def log_message(self, format: str, *args: Any) -> None:
-            print(f"[server] {self.address_string()} - {format % args}")
-
-    return Handler
+    return app
 
 
 def main() -> None:
@@ -119,6 +114,11 @@ def main() -> None:
         "--content",
         default="content",
         help="Character/skill/gacha content directory.",
+    )
+    parser.add_argument(
+        "--web-user",
+        default="web-user",
+        help="Optional Flutter Web build directory served at /play.",
     )
     args = parser.parse_args()
 
@@ -136,14 +136,28 @@ def main() -> None:
             f"Operator token environment variable {token_env!r} is not set."
         )
 
+    raw_origins = server_config.get("cors_origins", [])
+    cors_origins = (
+        [str(value) for value in raw_origins]
+        if isinstance(raw_origins, list)
+        else []
+    )
+    web_user_route = str(server_config.get("user_web_route", "/play"))
+
     runtime = FxChannelRuntime(config, content_root=args.content)
-    server = ThreadingHTTPServer(
-        (host, port),
-        build_handler(runtime, operator_token),
+    app = create_app(
+        runtime,
+        operator_token=operator_token,
+        cors_origins=cors_origins,
+        web_user_dir=args.web_user,
+        web_user_route=web_user_route,
     )
 
     print(f"fx_channel backend listening on http://{host}:{port}")
-    server.serve_forever()
+    if Path(args.web_user).is_dir():
+        print(f"user web app: http://{host}:{port}{web_user_route}")
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":
