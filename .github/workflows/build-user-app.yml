@@ -6,6 +6,7 @@ on:
       - "fx_channel/clients/user_app/**"
       - ".github/workflows/build-user-app.yml"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   web:
