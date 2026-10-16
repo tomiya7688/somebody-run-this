@@ -1,0 +1,99 @@
+name: Build User App
+
+on:
+  push:
+    paths:
+      - "fx_channel/clients/user_app/**"
+      - ".github/workflows/build-user-app.yml"
+  workflow_dispatch:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate web host
+        working-directory: fx_channel/clients/user_app
+        run: flutter create . --platforms=web --org io.github.tomiya7688 --project-name fx_channel_user
+      - name: Build Web
+        working-directory: fx_channel/clients/user_app
+        run: |
+          flutter pub get
+          flutter build web --release --base-href=/play/
+          cd build/web
+          zip -r ../../../../fx-channel-user-web.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-user-web
+          path: fx-channel-user-web.zip
+
+  android-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android host
+        working-directory: fx_channel/clients/user_app
+        run: flutter create . --platforms=android --org io.github.tomiya7688 --project-name fx_channel_user
+      - name: Set Android minimum SDK to 28
+        working-directory: fx_channel/clients/user_app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
+          for path in candidates:
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding="utf-8")
+              text = text.replace("minSdk = flutter.minSdkVersion", "minSdk = 28")
+              text = text.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 28")
+              path.write_text(text, encoding="utf-8")
+              print(f"patched {path}")
+              break
+          else:
+              raise SystemExit("Android Gradle file not found")
+          PY
+      - name: Build APK
+        working-directory: fx_channel/clients/user_app
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
+          cp build/app/outputs/flutter-apk/app-release.apk ../../../fx-channel-user-android-arm64.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-user-android-arm64
+          path: fx-channel-user-android-arm64.apk
+
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Windows host
+        working-directory: fx_channel/clients/user_app
+        run: flutter create . --platforms=windows --org io.github.tomiya7688 --project-name fx_channel_user
+      - name: Build Windows
+        working-directory: fx_channel/clients/user_app
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath ..\..\..\fx-channel-user-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fx-channel-user-windows-x64
+          path: fx-channel-user-windows-x64.zip
