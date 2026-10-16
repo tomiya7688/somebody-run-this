@@ -10,6 +10,7 @@ on:
       - "fx_channel/**"
       - ".github/workflows/test.yml"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   server-tests:
