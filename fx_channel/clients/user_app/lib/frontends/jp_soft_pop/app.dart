@@ -487,48 +487,198 @@ class _CharacterPage extends StatefulWidget {
 
 class _CharacterPageState extends State<_CharacterPage> {
   HomeView? _home;
+  String? _symbol;
+  String? _error;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    widget.service.loadHome(widget.playerId).then((value) {
-      if (mounted) {
-        setState(() => _home = value);
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final home = await widget.service.loadHome(widget.playerId);
+      if (!mounted) return;
+      setState(() {
+        _home = home;
+        _symbol ??= home.quotes.isEmpty ? null : home.quotes.first.symbol;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.toString());
+    }
+  }
+
+  Future<void> _useSkill(SkillView skill) async {
+    final symbol = _symbol;
+    if (symbol == null) return;
+
+    setState(() => _busy = true);
+    try {
+      final result = await widget.service.useSkill(
+        playerId: widget.playerId,
+        skillId: skill.id,
+        symbol: symbol,
+      );
+      if (!mounted) return;
+
+      if (!result.ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message)),
+        );
+        return;
       }
-    });
+
+      final title = result.data['title']?.toString() ?? skill.name;
+      final rawResult = result.data['result'];
+      final detail = rawResult is Map
+          ? rawResult.entries
+              .map((entry) => '${entry.key}: ${entry.value}')
+              .join('\n')
+          : '';
+      final disclaimer = result.data['disclaimer']?.toString();
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text(title),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(result.message),
+                  if (detail.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(detail),
+                  ],
+                  if (disclaimer != null && disclaimer.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      disclaimer,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final home = _home;
     if (home == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: _error == null
+            ? const CircularProgressIndicator()
+            : Text('接続エラー: $_error'),
+      );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        Text(
-          'キャラクター',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        ...home.characters.map(
-          (character) => Card(
-            child: ListTile(
-              leading: CircleAvatar(child: Text(character.rarity)),
-              title: Text(character.name),
-              subtitle: Text(
-                [
-                  '所持: ${character.copies}',
-                  character.skillIds.isEmpty
-                      ? 'スキルなし'
-                      : 'スキル: ${character.skillIds.join(", ")}',
-                ].join(' / '),
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(
+            'キャラクター',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          ...home.characters.map(
+            (character) => Card(
+              child: ListTile(
+                leading: CircleAvatar(child: Text(character.rarity)),
+                title: Text(character.name),
+                subtitle: Text(
+                  [
+                    '所持: ${character.copies}',
+                    character.skillIds.isEmpty
+                        ? 'スキルなし'
+                        : 'スキル: ${character.skillIds.join(", ")}',
+                  ].join(' / '),
+                ),
               ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          Text(
+            'スキル',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          if (home.quotes.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: DropdownButtonFormField<String>(
+                initialValue: _symbol,
+                decoration: const InputDecoration(
+                  labelText: '分析する通貨ペア',
+                  border: OutlineInputBorder(),
+                ),
+                items: home.quotes
+                    .map(
+                      (quote) => DropdownMenuItem(
+                        value: quote.symbol,
+                        child: Text(quote.symbol),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _symbol = value),
+              ),
+            ),
+          if (home.skills.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('使用できるスキルはありません。'),
+              ),
+            )
+          else
+            ...home.skills.map(
+              (skill) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.psychology_alt_rounded),
+                  title: Text(skill.name),
+                  subtitle: Text(
+                    '${skill.description}\n'
+                    'Cooldown: ${skill.cooldownSeconds}s',
+                  ),
+                  isThreeLine: true,
+                  trailing: FilledButton.tonal(
+                    onPressed: _busy || _symbol == null
+                        ? null
+                        : () => _useSkill(skill),
+                    child: const Text('使う'),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
