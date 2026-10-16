@@ -5,54 +5,60 @@ import ast
 from pathlib import Path
 
 
-ALLOWED_FX_CHANNEL_IMPORTS = {
-    "fx_channel.frontend_api",
-}
-
-DISALLOWED_PREFIXES = {
+COMMON_FORBIDDEN = {
     "fx_channel.market",
     "fx_channel.config",
     "fx_channel.content",
     "fx_channel.skill_api",
+    "fx_channel.runtime",
+    "fx_channel.http_clients",
     "fx_channel.frontend_loader",
 }
 
 
-def validate_frontend_file(path: Path) -> list[str]:
-    errors: list[str] = []
+def _imports(path: Path) -> list[tuple[int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    result: list[tuple[int, str]] = []
 
     for node in ast.walk(tree):
-        module: str | None = None
-
-        if isinstance(node, ast.ImportFrom):
-            module = node.module
+        if isinstance(node, ast.ImportFrom) and node.module:
+            result.append((node.lineno, node.module))
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                name = alias.name
-                if any(
-                    name == prefix or name.startswith(prefix + ".")
-                    for prefix in DISALLOWED_PREFIXES
-                ):
-                    errors.append(
-                        f"{path}:{node.lineno}: frontend must not import {name!r}"
-                    )
-            continue
+                result.append((node.lineno, alias.name))
 
-        if module is None:
+    return result
+
+
+def validate_frontend_file(
+    path: Path,
+    *,
+    allowed_contract: str,
+    forbidden_contract: str,
+) -> list[str]:
+    errors: list[str] = []
+
+    for lineno, module in _imports(path):
+        if module == forbidden_contract or module.startswith(forbidden_contract + "."):
+            errors.append(
+                f"{path}:{lineno}: frontend must not import opposite app contract "
+                f"{module!r}"
+            )
             continue
 
         if any(
             module == prefix or module.startswith(prefix + ".")
-            for prefix in DISALLOWED_PREFIXES
+            for prefix in COMMON_FORBIDDEN
         ):
             errors.append(
-                f"{path}:{node.lineno}: frontend must not import {module!r}"
+                f"{path}:{lineno}: frontend must not import internal module {module!r}"
             )
-        elif module.startswith("fx_channel.") and module not in ALLOWED_FX_CHANNEL_IMPORTS:
+            continue
+
+        if module.startswith("fx_channel.") and module != allowed_contract:
             errors.append(
-                f"{path}:{node.lineno}: built-in frontend may only depend on "
-                f"fx_channel.frontend_api; found {module!r}"
+                f"{path}:{lineno}: frontend may only depend on "
+                f"{allowed_contract!r}; found {module!r}"
             )
 
     return errors
@@ -60,7 +66,7 @@ def validate_frontend_file(path: Path) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate strict GUI/application dependency boundaries."
+        description="Validate user/operator GUI separation."
     )
     parser.add_argument(
         "--frontends",
@@ -72,15 +78,35 @@ def main() -> None:
     root = Path(args.frontends)
     errors: list[str] = []
 
-    for path in sorted(root.rglob("*.py")):
+    user_root = root / "user"
+    operator_root = root / "operator"
+
+    for path in sorted(user_root.rglob("*.py")):
         if path.name == "__init__.py":
             continue
-        errors.extend(validate_frontend_file(path))
+        errors.extend(
+            validate_frontend_file(
+                path,
+                allowed_contract="fx_channel.user_frontend_api",
+                forbidden_contract="fx_channel.operator_frontend_api",
+            )
+        )
+
+    for path in sorted(operator_root.rglob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        errors.extend(
+            validate_frontend_file(
+                path,
+                allowed_contract="fx_channel.operator_frontend_api",
+                forbidden_contract="fx_channel.user_frontend_api",
+            )
+        )
 
     if errors:
         raise SystemExit("ARCHITECTURE ERROR:\n" + "\n".join(errors))
 
-    print("OK: built-in frontends depend only on fx_channel.frontend_api")
+    print("OK: user and operator frontends are isolated by separate contracts")
 
 
 if __name__ == "__main__":
