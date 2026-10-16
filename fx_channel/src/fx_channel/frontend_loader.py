@@ -6,29 +6,30 @@ from typing import Any
 
 import yaml
 
-from .frontend_api import Frontend
-
 
 class FrontendConfigError(ValueError):
     pass
 
 
-def load_developer_config(path: str | Path) -> dict[str, Any]:
+def load_frontend_config(
+    path: str | Path,
+    *,
+    default_entrypoint: str,
+    default_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     config_path = Path(path)
+
     if not config_path.exists():
         return {
             "frontend": {
-                "entrypoint": "fx_channel.frontends.jp_soft_pop:Frontend",
-                "options": {
-                    "theme": "jp_soft_pop",
-                    "locale": "ja-JP",
-                },
+                "entrypoint": default_entrypoint,
+                "options": dict(default_options or {}),
             }
         }
 
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise FrontendConfigError("Developer config must be a YAML mapping.")
+        raise FrontendConfigError("Frontend config must be a YAML mapping.")
 
     frontend = raw.get("frontend")
     if not isinstance(frontend, dict):
@@ -47,10 +48,9 @@ def load_developer_config(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-def load_frontend(config: dict[str, Any]) -> Frontend:
+def load_frontend(config: dict[str, Any]) -> Any:
     frontend_config = config["frontend"]
     entrypoint = frontend_config["entrypoint"]
-
     module_name, class_name = entrypoint.split(":", 1)
 
     try:
@@ -68,7 +68,6 @@ def load_frontend(config: dict[str, Any]) -> Frontend:
         ) from exc
 
     frontend = frontend_class()
-
     if not callable(getattr(frontend, "run", None)):
         raise FrontendConfigError(
             f"{entrypoint!r} must provide a callable run(app, options) method."
