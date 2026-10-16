@@ -1,0 +1,64 @@
+# fx_channel official distribution targets
+#
+# "supported" means the release pipeline is expected to produce and test an
+# artifact for this target before that release is called supported.
+
+user:
+  windows_x64:
+    os: windows
+    architecture: x86_64
+    minimum_os: "Windows 10"
+    artifact: "fx-channel-user-windows-x64.zip"
+    status: target
+
+  android_arm64:
+    os: android
+    architecture: arm64-v8a
+    minimum_os: "Android 9.0"
+    minimum_api_level: 28
+    artifact: "fx-channel-user-android-arm64.apk"
+    status: target
+
+operator:
+  windows_x64:
+    os: windows
+    architecture: x86_64
+    minimum_os: "Windows 10"
+    artifact: "fx-channel-operator-windows-x64.zip"
+    status: target
+
+  linux_x64:
+    os: linux
+    architecture: x86_64
+    artifact: "fx-channel-operator-linux-x64.tar.gz"
+    status: target
+
+server:
+  linux_x64:
+    os: linux
+    architecture: x86_64
+    intended_for:
+      - "Ubuntu Server"
+      - "Debian"
+      - "compatible glibc-based Linux"
+    artifact: "fx-channel-server-linux-x64.tar.gz"
+    status: target
+
+  linux_arm64:
+    os: linux
+    architecture: aarch64
+    intended_for:
+      - "Ubuntu Server ARM64"
+      - "Debian ARM64"
+      - "compatible glibc-based Linux ARM64"
+    artifact: "fx-channel-server-linux-arm64.tar.gz"
+    status: target
+
+  windows_x64:
+    os: windows
+    architecture: x86_64
+    intended_for:
+      - "Windows Server"
+      - "Windows 10/11 for small/self-hosted operation"
+    artifact: "fx-channel-server-windows-x64.zip"
+    status: target
