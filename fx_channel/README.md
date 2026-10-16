@@ -52,3 +52,26 @@ python -m fx_channel --config config/operator.yaml --ticks 3
 - ゲーム内残高はゲームのスコアとして扱う
 - 外部為替APIを使わなくても運営できる
 - 相場生成部分を差し替え可能にする
+
+
+## キャラクター・スキル
+
+キャラクター、スキル、ガチャは `content/` 以下の YAML を追加して登録できます。
+
+```text
+content/
+├─ characters/
+├─ skills/
+└─ gacha/
+```
+
+追加内容の検証：
+
+```bash
+python -m fx_channel.content_validate --content content
+```
+
+スキルには市場を書き換えるAPIを渡しません。
+予測・分析系スキルは読み取り専用の相場情報から結果を返すだけで、将来の値動きを保証しません。
+
+運営者向けの詳しい登録方法は [Docs/運営者へ/キャラとスキル.md](Docs/%E9%81%8B%E5%96%B6%E8%80%85%E3%81%B8/%E3%82%AD%E3%83%A3%E3%83%A9%E3%81%A8%E3%82%B9%E3%82%AD%E3%83%AB.md) にあります。
