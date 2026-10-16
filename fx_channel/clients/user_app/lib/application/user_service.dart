@@ -81,6 +81,32 @@ class CharacterView {
   final int copies;
 }
 
+class SkillView {
+  const SkillView({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.description,
+    required this.cooldownSeconds,
+  });
+
+  factory SkillView.fromJson(Map<String, dynamic> json) {
+    return SkillView(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      type: json['type'] as String,
+      description: json['description'] as String,
+      cooldownSeconds: (json['cooldown_seconds'] as num).toInt(),
+    );
+  }
+
+  final String id;
+  final String name;
+  final String type;
+  final String description;
+  final int cooldownSeconds;
+}
+
 class GachaEntryView {
   const GachaEntryView({
     required this.characterId,
@@ -144,6 +170,7 @@ class HomeView {
     required this.quotes,
     required this.positions,
     required this.characters,
+    required this.skills,
     required this.wallet,
     required this.gachaPools,
   });
@@ -157,6 +184,7 @@ class HomeView {
   final List<MarketQuote> quotes;
   final List<PositionView> positions;
   final List<CharacterView> characters;
+  final List<SkillView> skills;
   final Map<String, int> wallet;
   final List<GachaPoolView> gachaPools;
 }
@@ -220,6 +248,21 @@ class UserService {
       playerId: playerId,
       action: 'close_position',
       payload: {'position_id': positionId},
+    );
+  }
+
+  Future<ActionResult> useSkill({
+    required String playerId,
+    required String skillId,
+    required String symbol,
+  }) {
+    return _gateway.postAction(
+      playerId: playerId,
+      action: 'use_skill',
+      payload: {
+        'skill_id': skillId,
+        'symbol': symbol,
+      },
     );
   }
 
