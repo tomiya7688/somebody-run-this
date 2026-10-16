@@ -1,6 +1,10 @@
-# Operator-local configuration
+# Operator/server-local configuration
 fx_channel/config/operator.yaml
-fx_channel/config/developer.yaml
+
+# Frontend-local configuration
+fx_channel/config/user_frontend.yaml
+fx_channel/config/operator_frontend.yaml
+
 .env
 
 # Python
