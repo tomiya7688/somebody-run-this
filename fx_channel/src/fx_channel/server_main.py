@@ -166,7 +166,14 @@ def main() -> None:
     )
     web_user_route = str(server_config.get("user_web_route", "/play"))
 
-    runtime = FxChannelRuntime(config, content_root=args.content)
+    operator_path = Path(args.operator).resolve()
+    data_root = operator_path.parent.parent
+
+    runtime = FxChannelRuntime(
+        config,
+        content_root=args.content,
+        data_root=data_root,
+    )
     app = create_app(
         runtime,
         operator_token=operator_token,
