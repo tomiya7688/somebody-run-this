@@ -20,6 +20,14 @@ class FakeRuntime:
                 "equity": 1_000_000,
             },
             "quotes": self.user_quotes(),
+            "positions": [],
+            "portfolio": {
+                "available_balance": 1_000_000,
+                "locked_margin": 0,
+                "unrealized_pnl": 0,
+                "equity": 1_000_000,
+                "positions": [],
+            },
             "characters": [],
         }
 
@@ -64,16 +72,61 @@ def make_client() -> TestClient:
     return TestClient(app)
 
 
+def new_user(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/user/session")
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_health() -> None:
     response = make_client().get("/health")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
 
 
-def test_user_api_does_not_require_operator_token() -> None:
+def test_quotes_are_public() -> None:
     response = make_client().get("/api/user/quotes")
     assert response.status_code == 200
     assert response.json()["quotes"][0]["symbol"] == "USDJPY"
+
+
+def test_user_home_requires_session() -> None:
+    response = make_client().get("/api/user/home")
+    assert response.status_code == 401
+
+
+def test_user_session_authorizes_home_and_action() -> None:
+    client = make_client()
+    session = new_user(client)
+    headers = {"Authorization": f"Bearer {session['token']}"}
+
+    home = client.get("/api/user/home", headers=headers)
+    assert home.status_code == 200
+    assert home.json()["player"]["player_id"] == session["player_id"]
+
+    action = client.post(
+        "/api/user/action",
+        headers=headers,
+        json={
+            "action": "ping",
+            "payload": {"value": 1},
+        },
+    )
+    assert action.status_code == 200
+    assert action.json()["data"]["player_id"] == session["player_id"]
+
+
+def test_tampered_user_token_is_rejected() -> None:
+    client = make_client()
+    session = new_user(client)
+    token = session["token"]
+    replacement = "0" if token[-1] != "0" else "1"
+
+    response = client.get(
+        "/api/user/home",
+        headers={"Authorization": f"Bearer {token[:-1] + replacement}"},
+    )
+    assert response.status_code == 401
 
 
 def test_operator_api_rejects_missing_token() -> None:
@@ -90,19 +143,11 @@ def test_operator_api_accepts_valid_token() -> None:
     assert response.json()["market_mode"] == "simulated"
 
 
-def test_user_action_and_operator_action_are_separate() -> None:
-    user = make_client().post(
-        "/api/user/action",
-        json={
-            "player_id": "p1",
-            "action": "ping",
-            "payload": {"value": 1},
-        },
+def test_user_token_cannot_access_operator_api() -> None:
+    client = make_client()
+    session = new_user(client)
+    response = client.get(
+        "/api/operator/status",
+        headers={"Authorization": f"Bearer {session['token']}"},
     )
-    assert user.status_code == 200
-
-    operator_without_token = make_client().post(
-        "/api/operator/action",
-        json={"action": "ping", "payload": {}},
-    )
-    assert operator_without_token.status_code == 401
+    assert response.status_code == 401
