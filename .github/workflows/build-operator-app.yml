@@ -6,6 +6,7 @@ on:
       - "fx_channel/clients/operator_app/**"
       - ".github/workflows/build-operator-app.yml"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   windows-x64:
