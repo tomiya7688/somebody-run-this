@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from .content import ContentRegistry, load_content_registry
 from .gacha import GachaEngine, GachaError
 from .market import PriceProvider, build_price_provider
+from .persistence import PlayerStateStore, build_player_state_store
 from .trading import TradingEngine, TradingError
 
 
@@ -17,11 +18,16 @@ class FxChannelRuntime:
         operator_config: dict[str, Any],
         *,
         content_root: str | Path = "content",
+        data_root: str | Path | None = None,
     ) -> None:
         self._config = operator_config
         self._symbols = list(operator_config["symbols"])
         self._price_provider: PriceProvider = build_price_provider(operator_config)
         self._content: ContentRegistry = load_content_registry(content_root)
+        self._state_store: PlayerStateStore = build_player_state_store(
+            operator_config.get("storage", {}),
+            base_dir=data_root,
+        )
 
         game_config = operator_config.get("game", {})
         self._trading = TradingEngine(
@@ -31,6 +37,7 @@ class FxChannelRuntime:
             allow_negative_balance=bool(
                 game_config.get("allow_negative_balance", False)
             ),
+            state_store=self._state_store,
         )
 
         economy_config = operator_config.get("economy", {})
@@ -52,6 +59,7 @@ class FxChannelRuntime:
                 for currency, amount in starting_currencies.items()
             },
             starting_characters=starting_characters,
+            state_store=self._state_store,
         )
 
     def _prices(self) -> dict[str, float]:
