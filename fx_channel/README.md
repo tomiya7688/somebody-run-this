@@ -8,6 +8,20 @@
 - スキルは相場そのものを変更しない
 - 予測スキルは予測であり的中保証なし
 
+## 現在動くもの
+
+- REAL / SIMULATED価格Provider
+- BUY / SELL、証拠金、レバレッジ、含み損益、決済
+- SQLiteによるサーバー再起動後の状態復元
+- 署名付き匿名User Session
+- キャラ所持
+- ガチャ、排出率表示、1回/10回抽選
+- 運営アプリから通貨付与
+- 読み取り専用相場データを使うスキル
+- 現在評価額ランキング
+- Operator AppからDB + User Session鍵のバックアップ
+- Windows EXE / Android APK / Web / Server BundleのCI
+
 ## 技術構成
 
 ### Server
