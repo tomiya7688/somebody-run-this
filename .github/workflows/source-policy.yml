@@ -44,6 +44,15 @@ jobs:
             exit 1
           fi
 
+      - name: Reject suppressed Dart security advisories
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '^\s*ignored_advisories\s*:' -- ':(glob)**/pubspec.yaml'; then
+            echo "::error::ignored_advisories requires an explicit coding-rule change and security review."
+            exit 1
+          fi
+
       - name: Require immutable GitHub Action references
         shell: python
         run: |
@@ -74,8 +83,8 @@ jobs:
                       errors.append(f"{path}: action has no immutable ref: {value}")
                       continue
 
-                  _, ref = value.rsplit("@", 1)
-                  if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                  _, action_ref = value.rsplit("@", 1)
+                  if not re.fullmatch(r"[0-9a-f]{40}", action_ref):
                       errors.append(
                           f"{path}: external action must use a full 40-character SHA: {value}"
                       )

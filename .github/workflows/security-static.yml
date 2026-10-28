@@ -35,11 +35,12 @@ jobs:
             fx_channel/pyproject.toml
             .github/security-tools.txt
 
-      - name: Install pinned audit toolchain
+      - name: Install pinned analysis toolchain
         run: |
           python -m pip install --disable-pip-version-check pip==26.2.2
           python -m pip install --disable-pip-version-check -r .github/security-tools.txt
           python -m pip install --disable-pip-version-check -e "./fx_channel[dev]"
+          python -m pip check
 
       - name: Ruff
         run: ruff check fx_channel/src fx_channel/tests
@@ -50,11 +51,11 @@ jobs:
       - name: Bandit
         run: bandit -r fx_channel/src/fx_channel -ll -ii
 
-      - name: Semgrep local policy
-        run: semgrep scan --config .semgrep.yml --error --metrics=off fx_channel
-
-      - name: Dependency audit
+      - name: Audit application dependencies
         run: pip-audit ./fx_channel --strict --aliases=on --desc=on
+
+      - name: Audit CI analysis environment
+        run: pip-audit --strict --aliases=on --desc=on
 
       - name: Tests with branch coverage
         working-directory: fx_channel
@@ -65,6 +66,72 @@ jobs:
       - name: Validate game content
         working-directory: fx_channel
         run: python -m fx_channel.content_validate --content content
+
+  semgrep:
+    name: Semgrep project policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+
+      - name: Install isolated Semgrep
+        run: |
+          python -m venv .venv-semgrep
+          .venv-semgrep/bin/python -m pip install --disable-pip-version-check pip==26.2.2
+          .venv-semgrep/bin/python -m pip install --disable-pip-version-check semgrep==1.180.0
+          .venv-semgrep/bin/python -m pip check
+
+      - name: Run local security policy
+        run: .venv-semgrep/bin/semgrep scan --config .semgrep.yml --error --metrics=off fx_channel
+
+  dart-security:
+    name: Dart dependency advisory gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+
+      - name: Reject user-app dependency advisories
+        working-directory: fx_channel/clients/user_app
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get 2>&1 | tee /tmp/user-pub-get.log
+          if grep -q "Dependencies are affected by security advisories" /tmp/user-pub-get.log; then
+            echo "::error::User app dependency resolution contains a published security advisory."
+            exit 1
+          fi
+
+      - name: Reject operator-app dependency advisories
+        working-directory: fx_channel/clients/operator_app
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get 2>&1 | tee /tmp/operator-pub-get.log
+          if grep -q "Dependencies are affected by security advisories" /tmp/operator-pub-get.log; then
+            echo "::error::Operator app dependency resolution contains a published security advisory."
+            exit 1
+          fi
 
   actions-security:
     name: GitHub Actions security

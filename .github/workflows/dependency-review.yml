@@ -2,13 +2,14 @@ name: Dependency review
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   dependency-review:
-    name: Reject vulnerable dependency changes
+    name: Dependency graph review
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -18,7 +19,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Dependency review
+      - name: Check whether GitHub Dependency Graph is enabled
+        id: graph
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(
+            curl --silent --show-error --output /dev/null --write-out '%{http_code}'               --header "Authorization: Bearer ${GITHUB_TOKEN}"               --header "Accept: application/vnd.github+json"               --header "X-GitHub-Api-Version: 2022-11-28"               "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom"
+          )"
+          if [[ "${status}" == "200" ]]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::GitHub Dependency Graph is not enabled. Python and Dart dependency gates still run in Security static analysis; enable Dependency Graph to activate PR-level dependency diff review."
+          fi
+
+      - name: Reject vulnerable dependency changes
+        if: steps.graph.outputs.enabled == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
