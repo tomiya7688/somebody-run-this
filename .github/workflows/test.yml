@@ -12,37 +12,66 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   server-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: fx_channel
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          python-version: "3.11"
-      - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev]"
-      - run: pytest -q
-      - run: python -m fx_channel.content_validate --content content
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+          cache: pip
+          cache-dependency-path: fx_channel/pyproject.toml
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pip==26.2.2
+          python -m pip install --disable-pip-version-check -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Validate content
+        run: python -m fx_channel.content_validate --content content
 
   flutter-analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Analyze user app
         working-directory: fx_channel/clients/user_app
         run: |
           flutter pub get
-          flutter analyze
+          flutter analyze --fatal-infos --fatal-warnings
+
       - name: Analyze operator app
         working-directory: fx_channel/clients/operator_app
         run: |
           flutter pub get
-          flutter analyze
+          flutter analyze --fatal-infos --fatal-warnings

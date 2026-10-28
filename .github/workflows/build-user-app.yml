@@ -8,18 +8,31 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Generate web host
         working-directory: fx_channel/clients/user_app
         run: flutter create . --platforms=web --org io.github.tomiya7688 --project-name fx_channel_user
+
       - name: Build Web
         working-directory: fx_channel/clients/user_app
         run: |
@@ -27,31 +40,46 @@ jobs:
           flutter build web --release --base-href=/play/
           cd build/web
           zip -r ../../../../fx-channel-user-web.zip .
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fx-channel-user-web
           path: fx-channel-user-web.zip
 
   android-arm64:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "17"
-      - uses: subosito/flutter-action@v2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Generate Android host
         working-directory: fx_channel/clients/user_app
         run: flutter create . --platforms=android --org io.github.tomiya7688 --project-name fx_channel_user
+
       - name: Set Android minimum SDK to 28
         working-directory: fx_channel/clients/user_app
         run: |
           python - <<'PY'
           from pathlib import Path
+
           candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
           for path in candidates:
               if not path.exists():
@@ -65,28 +93,41 @@ jobs:
           else:
               raise SystemExit("Android Gradle file not found")
           PY
+
       - name: Build APK
         working-directory: fx_channel/clients/user_app
         run: |
           flutter pub get
           flutter build apk --release --target-platform android-arm64
           cp build/app/outputs/flutter-apk/app-release.apk ../../../fx-channel-user-android-arm64.apk
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fx-channel-user-android-arm64
           path: fx-channel-user-android-arm64.apk
 
   windows-x64:
     runs-on: windows-latest
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Generate Windows host
         working-directory: fx_channel/clients/user_app
         run: flutter create . --platforms=windows --org io.github.tomiya7688 --project-name fx_channel_user
+
       - name: Build Windows
         working-directory: fx_channel/clients/user_app
         shell: pwsh
@@ -94,7 +135,9 @@ jobs:
           flutter pub get
           flutter build windows --release
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath ..\..\..\fx-channel-user-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fx-channel-user-windows-x64
           path: fx-channel-user-windows-x64.zip
