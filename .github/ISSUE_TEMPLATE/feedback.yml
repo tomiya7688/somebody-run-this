@@ -1,0 +1,53 @@
+name: "不具合・改善・フィードバック"
+description: "不具合、使いにくさ、改善案、感想などを送る"
+title: "[Feedback] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        フィードバックありがとうございます。
+        このリポジトリは無保証で、Issueへの返信・修正・採用を保証するものではありませんが、今後の開発や他の利用者の参考として受け取ります。
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 種類
+      options:
+        - "不具合"
+        - "使いにくい・分かりにくい"
+        - "改善案"
+        - "ドキュメント"
+        - "運営してみた感想"
+        - "その他"
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: 対象
+      description: "ゲーム名、機能名、ファイル名など。分からなければ空欄で構いません"
+      placeholder: "例: fx_channel / Windows版 / ガチャ画面"
+    validations:
+      required: false
+  - type: textarea
+    id: details
+    attributes:
+      label: 内容
+      description: "何が起きたか、どう感じたか、どうなると良いかを自由に書いてください"
+      placeholder: "自由に書いてください"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 再現方法・環境
+      description: "不具合の場合、OS・端末・手順など分かる範囲で"
+      placeholder: "例: Windows 11 x64 / ○○を押すと..."
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: その他
+      description: "スクリーンショット、ログ、関連リンクなど"
+    validations:
+      required: false
