@@ -120,6 +120,9 @@ class GenericHttpPriceProvider:
     @staticmethod
     def _validate_endpoint(endpoint: str) -> urllib.parse.SplitResult:
         parts = urllib.parse.urlsplit(endpoint)
+        scheme = parts.scheme.lower()
+        if scheme not in {"https", "http"}:
+            raise MarketError("Market endpoint must use HTTPS.")
         if parts.username is not None or parts.password is not None:
             raise MarketError("Market endpoint must not contain credentials.")
         if parts.hostname is None:
@@ -127,11 +130,8 @@ class GenericHttpPriceProvider:
         if parts.fragment:
             raise MarketError("Market endpoint must not contain a URL fragment.")
 
-        scheme = parts.scheme.lower()
         if scheme == "https":
             return parts
-        if scheme != "http":
-            raise MarketError("Market endpoint must use HTTPS.")
 
         host = parts.hostname.lower()
         if host == "localhost":
