@@ -154,7 +154,7 @@ class _HomePageState extends State<_HomePage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _reload());
   }
 
@@ -252,7 +252,7 @@ class _TradePageState extends State<_TradePage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
   }
 
   @override
@@ -494,7 +494,7 @@ class _CharacterPageState extends State<_CharacterPage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
   }
 
   Future<void> _reload() async {
@@ -705,7 +705,7 @@ class _GachaPageState extends State<_GachaPage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
   }
 
   Future<void> _reload() async {
@@ -744,7 +744,7 @@ class _GachaPageState extends State<_GachaPage> {
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: Text('${count}回ガチャ結果'),
+            title: Text('$count回ガチャ結果'),
             content: SizedBox(
               width: 420,
               child: ListView(
@@ -936,7 +936,7 @@ class _RankingPageState extends State<_RankingPage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
   }
 
   Future<void> _reload() async {

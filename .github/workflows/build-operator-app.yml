@@ -8,18 +8,31 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   windows-x64:
     runs-on: windows-latest
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Generate Windows host
         working-directory: fx_channel/clients/operator_app
         run: flutter create . --platforms=windows --org io.github.tomiya7688 --project-name fx_channel_operator
+
       - name: Build Windows
         working-directory: fx_channel/clients/operator_app
         shell: pwsh
@@ -27,31 +40,46 @@ jobs:
           flutter pub get
           flutter build windows --release
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath ..\..\..\fx-channel-operator-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fx-channel-operator-windows-x64
           path: fx-channel-operator-windows-x64.zip
 
   linux-x64:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
       - name: Install Linux desktop dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-      - uses: subosito/flutter-action@v2
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
+          flutter-version: "3.47.8"
           channel: stable
           cache: true
+
       - name: Generate Linux host
         working-directory: fx_channel/clients/operator_app
         run: flutter create . --platforms=linux --org io.github.tomiya7688 --project-name fx_channel_operator
+
       - name: Build Linux
         working-directory: fx_channel/clients/operator_app
         run: |
           flutter pub get
           flutter build linux --release
           tar -czf ../../../fx-channel-operator-linux-x64.tar.gz -C build/linux/x64/release/bundle .
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fx-channel-operator-linux-x64
           path: fx-channel-operator-linux-x64.tar.gz

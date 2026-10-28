@@ -1,0 +1,8 @@
+/.github/workflows/ @tomiya7688
+/.github/SECURITY_RULES.md @tomiya7688
+/.github/CODING_RULES.md @tomiya7688
+/.github/CODING_DEVIATIONS.md @tomiya7688
+/.semgrep.yml @tomiya7688
+/fx_channel/pyproject.toml @tomiya7688
+/fx_channel/clients/user_app/pubspec.yaml @tomiya7688
+/fx_channel/clients/operator_app/pubspec.yaml @tomiya7688

@@ -1,0 +1,83 @@
+rules:
+  - id: srt-python-dynamic-code-execution
+    languages: [python]
+    severity: ERROR
+    message: Dynamic code execution is prohibited by SRT-M004.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: srt-python-os-system
+    languages: [python]
+    severity: ERROR
+    message: os.system is prohibited by SRT-M006.
+    pattern: os.system(...)
+
+  - id: srt-python-shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess with shell=True is prohibited by SRT-M006.
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+
+  - id: srt-python-unsafe-yaml
+    languages: [python]
+    severity: ERROR
+    message: Unsafe YAML loading is prohibited by SRT-M005.
+    pattern: yaml.load(...)
+
+  - id: srt-python-pickle-load
+    languages: [python]
+    severity: ERROR
+    message: Pickle deserialization is prohibited for untrusted/project state by SRT-M005.
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+
+  - id: srt-python-native-ffi
+    languages: [python]
+    severity: ERROR
+    message: Project-managed native FFI is prohibited by SRT-M007.
+    pattern-either:
+      - pattern: ctypes.$X(...)
+      - pattern: cffi.$X(...)
+
+  - id: srt-python-disable-tls-verification
+    languages: [python]
+    severity: ERROR
+    message: TLS certificate verification must not be disabled (SRT-M008).
+    pattern-either:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern: httpx.$METHOD(..., verify=False, ...)
+      - pattern: httpx.Client(..., verify=False, ...)
+      - pattern: httpx.AsyncClient(..., verify=False, ...)
+
+  - id: srt-dart-native-ffi
+    languages: [dart]
+    severity: ERROR
+    message: dart:ffi is prohibited by SRT-M007.
+    pattern-regex: "import\\s+['\"]dart:ffi['\"]"
+
+  - id: srt-dart-process-execution
+    languages: [dart]
+    severity: ERROR
+    message: Process execution requires explicit design review under SRT-M006.
+    pattern-either:
+      - pattern: Process.run(...)
+      - pattern: Process.runSync(...)
+      - pattern: Process.start(...)
+      - pattern: Process.startSync(...)
+
+  - id: srt-dart-http-overrides
+    languages: [dart]
+    severity: ERROR
+    message: HttpOverrides can bypass transport security and is prohibited by SRT-M008.
+    pattern: HttpOverrides.global = $X
+
+  - id: srt-dart-bad-certificate-callback
+    languages: [dart]
+    severity: ERROR
+    message: Disabling certificate verification is prohibited by SRT-M008.
+    pattern: $X.badCertificateCallback = $Y

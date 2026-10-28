@@ -9,7 +9,7 @@ void main() {
     defaultValue: 'http://127.0.0.1:8787',
   );
 
-  runApp(OperatorApp(defaultServerUrl: defaultServerUrl));
+  runApp(const OperatorApp(defaultServerUrl: defaultServerUrl));
 }
 
 class OperatorApp extends StatelessWidget {

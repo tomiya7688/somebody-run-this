@@ -404,7 +404,7 @@ class FxChannelRuntime:
                         "Position not found."
                     )
 
-                result = self._trading.close_position(
+                close_result = self._trading.close_position(
                     player_id=player_id,
                     position_id=position_id,
                     current_price=prices[row["symbol"]],
@@ -420,10 +420,10 @@ class FxChannelRuntime:
                         "season_id": season.id,
                         "position_id": position_id,
                         "exit_price": float(
-                            result["exit_price"]
+                            close_result["exit_price"]
                         ),
                         "realized_pnl": float(
-                            result["realized_pnl"]
+                            close_result["realized_pnl"]
                         ),
                         "portfolio": portfolio,
                     },
@@ -483,7 +483,7 @@ class FxChannelRuntime:
                     )
 
                 prices = self._prices()
-                result = self._skills.execute(
+                skill_result = self._skills.execute(
                     player_id=player_id,
                     skill_id=skill_id,
                     symbol=symbol,
@@ -497,11 +497,11 @@ class FxChannelRuntime:
                 )
                 return {
                     "ok": True,
-                    "message": result.message,
+                    "message": skill_result.message,
                     "data": {
-                        "title": result.title,
-                        "result": dict(result.data),
-                        "disclaimer": result.disclaimer,
+                        "title": skill_result.title,
+                        "result": dict(skill_result.data),
+                        "disclaimer": skill_result.disclaimer,
                     },
                 }
 

@@ -96,7 +96,7 @@ def _volatility_alert_v1(
         )
 
     returns: list[float] = []
-    for previous, current in zip(points, points[1:]):
+    for previous, current in zip(points, points[1:], strict=False):
         if previous.price <= 0:
             continue
         returns.append((current.price - previous.price) / previous.price)

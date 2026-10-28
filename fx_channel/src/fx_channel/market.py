@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
 import math
 import os
@@ -7,7 +9,6 @@ import random
 import threading
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
@@ -95,6 +96,7 @@ class GenericHttpPriceProvider:
     api_key_header: str = "X-API-Key"
     poll_seconds: float = 10.0
     timeout_seconds: float = 5.0
+    max_response_bytes: int = 1_000_000
     on_error: str = "keep_last"
     fallback: PriceProvider | None = None
     clock: Callable[[], float] = field(
@@ -104,10 +106,43 @@ class GenericHttpPriceProvider:
     )
 
     def __post_init__(self) -> None:
+        self._endpoint_parts = self._validate_endpoint(self.endpoint)
+        if self.timeout_seconds <= 0:
+            raise MarketError("timeout_seconds must be greater than 0.")
+        if self.max_response_bytes <= 0:
+            raise MarketError("max_response_bytes must be greater than 0.")
+
         self._last_prices: dict[str, float] = {}
         self._last_poll_at: float | None = None
         self._last_error: Exception | None = None
         self._lock = threading.RLock()
+
+    @staticmethod
+    def _validate_endpoint(endpoint: str) -> urllib.parse.SplitResult:
+        parts = urllib.parse.urlsplit(endpoint)
+        scheme = parts.scheme.lower()
+        if scheme not in {"https", "http"}:
+            raise MarketError("Market endpoint must use HTTPS.")
+        if parts.username is not None or parts.password is not None:
+            raise MarketError("Market endpoint must not contain credentials.")
+        if parts.hostname is None:
+            raise MarketError("Market endpoint must include a hostname.")
+        if parts.fragment:
+            raise MarketError("Market endpoint must not contain a URL fragment.")
+
+        if scheme == "https":
+            return parts
+
+        host = parts.hostname.lower()
+        if host == "localhost":
+            return parts
+        try:
+            if ipaddress.ip_address(host).is_loopback:
+                return parts
+        except ValueError:
+            pass
+
+        raise MarketError("Plain HTTP market endpoints are allowed only on loopback.")
 
     def get_prices(self, symbols: list[str]) -> dict[str, float]:
         with self._lock:
@@ -163,9 +198,12 @@ class GenericHttpPriceProvider:
         ) from exc
 
     def _fetch(self, symbols: list[str]) -> dict[str, float]:
-        separator = "&" if "?" in self.endpoint else "?"
-        query = urllib.parse.urlencode({"symbols": ",".join(symbols)})
-        url = f"{self.endpoint}{separator}{query}"
+        parts = self._endpoint_parts
+        query_items = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        query_items.append(("symbols", ",".join(symbols)))
+        query = urllib.parse.urlencode(query_items)
+        path = parts.path or "/"
+        target = urllib.parse.urlunsplit(("", "", path, query, ""))
 
         headers = {"Accept": "application/json"}
 
@@ -177,13 +215,34 @@ class GenericHttpPriceProvider:
                 )
             headers[self.api_key_header] = api_key
 
-        request = urllib.request.Request(url, headers=headers)
+        host = parts.hostname
+        if host is None:
+            raise MarketError("Market endpoint hostname disappeared after validation.")
 
-        with urllib.request.urlopen(
-            request,
+        connection_class = (
+            http.client.HTTPSConnection
+            if parts.scheme.lower() == "https"
+            else http.client.HTTPConnection
+        )
+        connection = connection_class(
+            host,
+            port=parts.port,
             timeout=self.timeout_seconds,
-        ) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        )
+        try:
+            connection.request("GET", target, headers=headers)
+            response = connection.getresponse()
+            if not 200 <= response.status < 300:
+                raise MarketError(
+                    f"Market API returned HTTP {response.status}."
+                )
+            raw_payload = response.read(self.max_response_bytes + 1)
+            if len(raw_payload) > self.max_response_bytes:
+                raise MarketError("Market API response exceeded the configured size limit.")
+        finally:
+            connection.close()
+
+        payload = json.loads(raw_payload.decode("utf-8"))
 
         # Supported generic response forms:
         # {"rates": {"USDJPY": 150.1, "EURUSD": 1.08}}

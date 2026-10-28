@@ -2,21 +2,27 @@ name: Source policy
 
 on:
   push:
-    branches:
-      - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: source-policy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  prohibited-source-languages:
-    name: Prohibited source languages
+  repository-policy:
+    name: Repository source and workflow policy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Reject prohibited tracked source files
         shell: bash
@@ -38,4 +44,66 @@ jobs:
             exit 1
           fi
 
-          echo "Source language policy check passed."
+      - name: Reject suppressed Dart security advisories
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '^\s*ignored_advisories\s*:' -- ':(glob)**/pubspec.yaml'; then
+            echo "::error::ignored_advisories requires an explicit coding-rule change and security review."
+            exit 1
+          fi
+
+      - name: Require immutable GitHub Action references
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import pathlib
+          import re
+          import sys
+
+          errors: list[str] = []
+          workflow_dir = pathlib.Path(".github/workflows")
+
+          for path in sorted(workflow_dir.glob("*.y*ml")):
+              text = path.read_text(encoding="utf-8")
+
+              if re.search(r"(?m)^\s*pull_request_target\s*:", text):
+                  errors.append(
+                      f"{path}: pull_request_target is prohibited; use pull_request "
+                      "or a separately reviewed privileged workflow."
+                  )
+
+              for match in re.finditer(r"(?m)^\s*uses:\s*([^\s#]+)", text):
+                  value = match.group(1)
+                  if value.startswith("./"):
+                      continue
+
+                  if "@" not in value:
+                      errors.append(f"{path}: action has no immutable ref: {value}")
+                      continue
+
+                  _, action_ref = value.rsplit("@", 1)
+                  if not re.fullmatch(r"[0-9a-f]{40}", action_ref):
+                      errors.append(
+                          f"{path}: external action must use a full 40-character SHA: {value}"
+                      )
+
+          if errors:
+              print("Repository workflow policy violations:", file=sys.stderr)
+              for error in errors:
+                  print(f"- {error}", file=sys.stderr)
+              raise SystemExit(1)
+
+          print("All external GitHub Actions are pinned to full commit SHAs.")
+
+      - name: Reject obvious pipe-to-shell installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nEI '(curl|wget)[^|;]*(\||;)[[:space:]]*(bash|sh)([[:space:]]|$)' --             '.github/**' 'fx_channel/**'; then
+            echo "::error::Pipe-to-shell installer pattern is prohibited."
+            exit 1
+          fi
+
+          echo "Repository source policy passed."
