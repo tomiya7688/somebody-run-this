@@ -1,0 +1,7 @@
+bandit==1.9.4
+coverage==7.17.0
+mypy==2.4.0
+pip-audit==2.10.1
+ruff==0.17.3
+semgrep==1.180.0
+zizmor==1.30.1
