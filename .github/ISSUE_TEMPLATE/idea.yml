@@ -1,0 +1,45 @@
+name: "こんなの作ってくれ"
+description: "作ってほしいゲーム・仕組み・試作の案を投げる"
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **思いつき段階でOKです。**
+        完成した企画書、実装方法、収益モデルなどは必要ありません。
+        「こういうの遊びたい」「こういう仕組みを試してほしい」だけでも歓迎します。
+
+        投稿された案の採用・実装・完成・返信を保証するものではありません。
+  - type: textarea
+    id: idea
+    attributes:
+      label: こんなの作って
+      description: "ゲームや仕組みの案を自由に書いてください"
+      placeholder: "例: ○○をみんなで奪い合う放置ゲームがほしい"
+    validations:
+      required: true
+  - type: textarea
+    id: interesting
+    attributes:
+      label: どこが面白そう？
+      description: "なくても構いません。思いついた理由や遊びたいポイントがあれば"
+    validations:
+      required: false
+  - type: dropdown
+    id: stage
+    attributes:
+      label: アイデアのまとまり具合
+      options:
+        - "完全な思いつき"
+        - "ざっくり遊び方がある"
+        - "ある程度仕様を考えている"
+        - "既存ゲーム・企画の派生案"
+    validations:
+      required: false
+  - type: textarea
+    id: references
+    attributes:
+      label: 参考
+      description: "似ているゲーム、画像、動画、URLなどがあれば"
+    validations:
+      required: false
