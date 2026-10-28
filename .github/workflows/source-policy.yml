@@ -1,0 +1,41 @@
+name: Source policy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  prohibited-source-languages:
+    name: Prohibited source languages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject prohibited tracked source files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t prohibited < <(
+            git ls-files |
+              grep -Ei '\.(c|cc|cpp|cxx|h|hh|hpp|hxx|zig|php|phtml|php[0-9]+|js|jsx|mjs|cjs)$' ||
+              true
+          )
+
+          if (( ${#prohibited[@]} > 0 )); then
+            echo "::error::Repository security policy violation: prohibited source files are tracked."
+            printf '  %s\n' "${prohibited[@]}"
+            echo
+            echo "C/C++/Zig/PHP and handwritten JavaScript are prohibited."
+            echo "Use TypeScript/TSX instead of handwritten JavaScript."
+            exit 1
+          fi
+
+          echo "Source language policy check passed."
