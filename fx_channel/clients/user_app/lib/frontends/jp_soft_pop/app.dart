@@ -744,7 +744,7 @@ class _GachaPageState extends State<_GachaPage> {
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: Text('${count}回ガチャ結果'),
+            title: Text('$count回ガチャ結果'),
             content: SizedBox(
               width: 420,
               child: ListView(

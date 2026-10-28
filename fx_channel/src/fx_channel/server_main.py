@@ -27,6 +27,139 @@ class OperatorActionRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class _ApiRoutes:
+    def __init__(
+        self,
+        runtime: FxChannelRuntime,
+        *,
+        operator_token: str,
+        user_sessions: UserSessionManager,
+    ) -> None:
+        self._runtime = runtime
+        self._operator_token = operator_token
+        self._user_sessions = user_sessions
+
+    def _require_operator(self, authorization: str | None) -> None:
+        expected = f"Bearer {self._operator_token}"
+        actual = authorization or ""
+        if not hmac.compare_digest(actual, expected):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    def _require_user(self, authorization: str | None) -> str:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="User session required")
+
+        token = authorization.removeprefix("Bearer ").strip()
+        try:
+            return self._user_sessions.verify(token)
+        except UserAuthError as exc:
+            raise HTTPException(status_code=401, detail="Invalid user session") from exc
+
+    def health(self) -> dict[str, bool]:
+        return {"ok": True}
+
+    def user_session(self) -> dict[str, str]:
+        return self._user_sessions.issue()
+
+    def user_quotes(self) -> dict[str, Any]:
+        return {"quotes": self._runtime.user_quotes()}
+
+    def user_home(
+        self,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        player_id = self._require_user(authorization)
+        return self._runtime.user_home(player_id)
+
+    def user_ranking(
+        self,
+        limit: int = 100,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        self._require_user(authorization)
+        return {"ranking": self._runtime.user_ranking(limit=limit)}
+
+    def user_action(
+        self,
+        request: UserActionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        player_id = self._require_user(authorization)
+        return self._runtime.user_action(
+            player_id,
+            request.action,
+            request.payload,
+        )
+
+    def operator_status(
+        self,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        self._require_operator(authorization)
+        return self._runtime.operator_status()
+
+    def operator_action(
+        self,
+        request: OperatorActionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        self._require_operator(authorization)
+        return self._runtime.operator_action(request.action, request.payload)
+
+
+def _create_user_sessions(
+    operator_token: str,
+    user_session_secret: bytes | None,
+) -> UserSessionManager:
+    if user_session_secret is not None:
+        return UserSessionManager(user_session_secret)
+    return UserSessionManager.from_operator_token(operator_token)
+
+
+def _configure_cors(app: FastAPI, cors_origins: list[str] | None) -> None:
+    origins = list(cors_origins or [])
+    if not origins:
+        return
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+
+def _register_routes(app: FastAPI, routes: _ApiRoutes) -> None:
+    app.add_api_route("/health", routes.health, methods=["GET"])
+    app.add_api_route("/api/user/session", routes.user_session, methods=["POST"])
+    app.add_api_route("/api/user/quotes", routes.user_quotes, methods=["GET"])
+    app.add_api_route("/api/user/home", routes.user_home, methods=["GET"])
+    app.add_api_route("/api/user/ranking", routes.user_ranking, methods=["GET"])
+    app.add_api_route("/api/user/action", routes.user_action, methods=["POST"])
+    app.add_api_route("/api/operator/status", routes.operator_status, methods=["GET"])
+    app.add_api_route("/api/operator/action", routes.operator_action, methods=["POST"])
+
+
+def _mount_user_web(
+    app: FastAPI,
+    web_user_dir: str | Path | None,
+    web_user_route: str,
+) -> None:
+    if web_user_dir is None:
+        return
+
+    web_path = Path(web_user_dir)
+    if not web_path.is_dir():
+        return
+
+    app.mount(
+        web_user_route,
+        StaticFiles(directory=str(web_path), html=True),
+        name="user-web",
+    )
+
+
 def create_app(
     runtime: FxChannelRuntime,
     *,
@@ -40,101 +173,16 @@ def create_app(
         title="fx_channel server",
         version="0.1.0",
     )
-    user_sessions = (
-        UserSessionManager(user_session_secret)
-        if user_session_secret is not None
-        else UserSessionManager.from_operator_token(operator_token)
+    user_sessions = _create_user_sessions(operator_token, user_session_secret)
+    routes = _ApiRoutes(
+        runtime,
+        operator_token=operator_token,
+        user_sessions=user_sessions,
     )
 
-    origins = list(cors_origins or [])
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_credentials=False,
-            allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type"],
-        )
-
-    def require_operator(authorization: str | None) -> None:
-        expected = f"Bearer {operator_token}"
-        actual = authorization or ""
-        if not hmac.compare_digest(actual, expected):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-
-    def require_user(authorization: str | None) -> str:
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="User session required")
-
-        token = authorization.removeprefix("Bearer ").strip()
-        try:
-            return user_sessions.verify(token)
-        except UserAuthError as exc:
-            raise HTTPException(status_code=401, detail="Invalid user session") from exc
-
-    @app.get("/health")
-    def health() -> dict[str, bool]:
-        return {"ok": True}
-
-    @app.post("/api/user/session")
-    def user_session() -> dict[str, str]:
-        return user_sessions.issue()
-
-    @app.get("/api/user/quotes")
-    def user_quotes() -> dict[str, Any]:
-        return {"quotes": runtime.user_quotes()}
-
-    @app.get("/api/user/home")
-    def user_home(
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        player_id = require_user(authorization)
-        return runtime.user_home(player_id)
-
-    @app.get("/api/user/ranking")
-    def user_ranking(
-        limit: int = 100,
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        require_user(authorization)
-        return {"ranking": runtime.user_ranking(limit=limit)}
-
-    @app.post("/api/user/action")
-    def user_action(
-        request: UserActionRequest,
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        player_id = require_user(authorization)
-        return runtime.user_action(
-            player_id,
-            request.action,
-            request.payload,
-        )
-
-    @app.get("/api/operator/status")
-    def operator_status(
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        require_operator(authorization)
-        return runtime.operator_status()
-
-    @app.post("/api/operator/action")
-    def operator_action(
-        request: OperatorActionRequest,
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        require_operator(authorization)
-        return runtime.operator_action(request.action, request.payload)
-
-    if web_user_dir is not None:
-        web_path = Path(web_user_dir)
-        if web_path.is_dir():
-            app.mount(
-                web_user_route,
-                StaticFiles(directory=str(web_path), html=True),
-                name="user-web",
-            )
-
+    _configure_cors(app, cors_origins)
+    _register_routes(app, routes)
+    _mount_user_web(app, web_user_dir, web_user_route)
     return app
 
 
