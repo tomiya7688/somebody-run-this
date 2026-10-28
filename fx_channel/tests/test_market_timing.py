@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fx_channel.market import GenericHttpPriceProvider, SimulatedPriceProvider
+import pytest
+
+from fx_channel.market import GenericHttpPriceProvider, MarketError, SimulatedPriceProvider
 
 
 class FakeClock:
@@ -68,3 +70,18 @@ def test_real_market_respects_poll_interval() -> None:
     third = provider.get_prices(["USDJPY"])
     assert provider.fetch_count == 2
     assert third["USDJPY"] == 102.0
+
+
+def test_real_market_rejects_non_http_schemes() -> None:
+    with pytest.raises(MarketError, match="HTTPS"):
+        GenericHttpPriceProvider(endpoint="file:///etc/passwd")
+
+
+def test_real_market_rejects_plain_http_off_loopback() -> None:
+    with pytest.raises(MarketError, match="loopback"):
+        GenericHttpPriceProvider(endpoint="http://example.com/prices")
+
+
+def test_real_market_allows_plain_http_on_loopback() -> None:
+    provider = CountingHttpProvider(endpoint="http://127.0.0.1:8787/prices")
+    assert provider.endpoint == "http://127.0.0.1:8787/prices"
