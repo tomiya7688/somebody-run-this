@@ -4,7 +4,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any, Mapping, TypedDict
 
 from .persistence import PlayerStateStore
 
@@ -44,6 +44,13 @@ class Position:
         change_ratio = (current_price - self.entry_price) / self.entry_price
         direction = Decimal("1") if self.side == "buy" else Decimal("-1")
         return self.exposure * change_ratio * direction
+
+
+class ClosePositionResult(TypedDict):
+    position: Position
+    exit_price: Decimal
+    realized_pnl: Decimal
+    cash: Decimal
 
 
 @dataclass
@@ -226,7 +233,7 @@ class TradingEngine:
         player_id: str,
         position_id: str,
         current_price: Any,
-    ) -> dict[str, Decimal | Position]:
+    ) -> ClosePositionResult:
         price_value = _decimal(current_price, field_name="current_price")
         if price_value <= 0:
             raise TradingError("current_price must be greater than 0.")
