@@ -1,0 +1,42 @@
+name: "運営・移植・派生版の報告 / 相談"
+description: "実際に持っていった、運営した、移植した、改造した人向け"
+title: "[Operation] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        このリポジトリの内容を持っていって運営・改造・移植した報告を歓迎します。
+        成功例だけでなく、うまくいかなかった点や困った点もフィードバックとして有用です。
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 種類
+      options:
+        - "運営している / 運営した"
+        - "移植した"
+        - "改造・派生版を作った"
+        - "これから運営したいので相談"
+        - "その他"
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: 対象
+      placeholder: "例: fx_channel"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 内容
+      description: "構成、変更した点、困った点、分かったことなど"
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: 公開先・派生版のURL
+      description: "公開してよければ。非公開なら空欄で構いません"
+    validations:
+      required: false
