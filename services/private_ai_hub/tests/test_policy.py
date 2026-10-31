@@ -10,6 +10,15 @@ class PolicyTests(unittest.TestCase):
         decision = resolve_feature(FeatureMode.DISABLED, requested=True)
         self.assertFalse(decision.effective)
 
+    def test_serialized_disabled_mode_still_wins(self) -> None:
+        decision = resolve_feature("disabled", requested=True)
+        self.assertEqual(decision.mode, FeatureMode.DISABLED)
+        self.assertFalse(decision.effective)
+
+    def test_invalid_feature_mode_is_rejected(self) -> None:
+        with self.assertRaises(PolicyViolation):
+            resolve_feature("unknown", requested=True)
+
     def test_admin_required_wins(self) -> None:
         decision = resolve_feature(FeatureMode.REQUIRED, requested=False)
         self.assertTrue(decision.effective)
@@ -27,6 +36,15 @@ class PolicyTests(unittest.TestCase):
         limit = IntegerLimit(minimum=1, maximum=8)
         with self.assertRaises(PolicyViolation):
             limit.require(9)
+
+    def test_integer_limit_rejects_fractional_request(self) -> None:
+        limit = IntegerLimit(minimum=1, maximum=8)
+        with self.assertRaises(PolicyViolation):
+            limit.require(2.5)  # type: ignore[arg-type]
+
+    def test_integer_limit_rejects_fractional_bound(self) -> None:
+        with self.assertRaises(ValueError):
+            IntegerLimit(minimum=0, maximum=8.5)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
