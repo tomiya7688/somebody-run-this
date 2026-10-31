@@ -2,11 +2,71 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 import json
 from pathlib import Path
+import socket
+import threading
 
 from . import __version__
 from .storage import is_ready
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+    request_queue_size = 64
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        *,
+        max_connections: int,
+        request_timeout_seconds: int,
+        address_family: int,
+    ) -> None:
+        self.address_family = address_family
+        self._connection_slots = threading.BoundedSemaphore(max_connections)
+        self._request_timeout_seconds = request_timeout_seconds
+        super().__init__(server_address, handler_class)
+
+    def get_request(self) -> tuple[socket.socket, object]:
+        request, client_address = super().get_request()
+        request.settimeout(self._request_timeout_seconds)
+        return request, client_address
+
+    def process_request(self, request: socket.socket, client_address: object) -> None:
+        if not self._connection_slots.acquire(blocking=False):
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            request.close()
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connection_slots.release()
+            raise
+
+    def process_request_thread(
+        self,
+        request: socket.socket,
+        client_address: object,
+    ) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connection_slots.release()
+
+
+def _address_family_for_host(host: str) -> int:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return socket.AF_INET
+    return socket.AF_INET6 if address.version == 6 else socket.AF_INET
 
 
 def _json_bytes(payload: dict[str, object]) -> bytes:
@@ -56,5 +116,18 @@ def make_handler(storage_path: Path) -> type[BaseHTTPRequestHandler]:
     return HealthHandler
 
 
-def build_server(host: str, port: int, storage_path: Path) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler(storage_path))
+def build_server(
+    host: str,
+    port: int,
+    storage_path: Path,
+    *,
+    max_connections: int = 64,
+    request_timeout_seconds: int = 10,
+) -> BoundedThreadingHTTPServer:
+    return BoundedThreadingHTTPServer(
+        (host, port),
+        make_handler(storage_path),
+        max_connections=max_connections,
+        request_timeout_seconds=request_timeout_seconds,
+        address_family=_address_family_for_host(host),
+    )
