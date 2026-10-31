@@ -26,6 +26,8 @@ def main() -> int:
         config.server.host,
         config.server.port,
         config.storage.sqlite_path,
+        max_connections=config.server.max_connections,
+        request_timeout_seconds=config.server.request_timeout_seconds,
     )
     try:
         server.serve_forever()
