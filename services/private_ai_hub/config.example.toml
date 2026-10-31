@@ -1,6 +1,8 @@
 [server]
 host = "127.0.0.1"
 port = 8787
+request_timeout_seconds = 10
+max_connections = 64
 
 [storage]
 sqlite_path = "./data/private_ai_hub.sqlite3"
