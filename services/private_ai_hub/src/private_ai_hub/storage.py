@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import sqlite3
-from typing import Iterable
+from typing import Iterable, Iterator
 
+
+logger = logging.getLogger(__name__)
 
 Migration = tuple[int, str]
 
@@ -29,6 +32,16 @@ def connect(path: Path | str) -> sqlite3.Connection:
     return connection
 
 
+def _connect_read_only(path: Path) -> sqlite3.Connection:
+    resolved = path.resolve(strict=True)
+    connection = sqlite3.connect(
+        f"{resolved.as_uri()}?mode=ro",
+        uri=True,
+    )
+    connection.execute("PRAGMA query_only = ON")
+    return connection
+
+
 def _ensure_migration_table(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -41,12 +54,16 @@ def _ensure_migration_table(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
-def current_version(connection: sqlite3.Connection) -> int:
-    _ensure_migration_table(connection)
+def _read_current_version(connection: sqlite3.Connection) -> int:
     row = connection.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
     ).fetchone()
     return int(row[0])
+
+
+def current_version(connection: sqlite3.Connection) -> int:
+    _ensure_migration_table(connection)
+    return _read_current_version(connection)
 
 
 def target_version(migrations: Iterable[Migration] = MIGRATIONS) -> int:
@@ -54,25 +71,44 @@ def target_version(migrations: Iterable[Migration] = MIGRATIONS) -> int:
     return max(versions, default=0)
 
 
+def _iter_statements(sql: str) -> Iterator[str]:
+    buffer = ""
+    for line in sql.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            statement = buffer.strip()
+            if statement:
+                yield statement
+            buffer = ""
+    if buffer.strip():
+        raise sqlite3.OperationalError("migration SQL contains an incomplete statement")
+
+
 def migrate(
     connection: sqlite3.Connection,
     migrations: Iterable[Migration] = MIGRATIONS,
 ) -> int:
     _ensure_migration_table(connection)
-    applied = {
-        int(row[0])
-        for row in connection.execute("SELECT version FROM schema_migrations")
-    }
 
     for version, sql in sorted(migrations, key=lambda item: item[0]):
-        if version in applied:
-            continue
-        with connection:
-            connection.executescript(sql)
-            connection.execute(
-                "INSERT INTO schema_migrations(version) VALUES (?)",
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            already_applied = connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = ?",
                 (version,),
-            )
+            ).fetchone()
+            if already_applied is None:
+                for statement in _iter_statements(sql):
+                    connection.execute(statement)
+                connection.execute(
+                    "INSERT INTO schema_migrations(version) VALUES (?)",
+                    (version,),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
     return current_version(connection)
 
 
@@ -82,8 +118,21 @@ def initialize(path: Path | str) -> int:
 
 
 def is_ready(path: Path | str) -> bool:
+    database_path = Path(path)
     try:
-        with connect(path) as connection:
-            return current_version(connection) == target_version()
-    except sqlite3.Error:
+        if not database_path.is_file():
+            return False
+        with _connect_read_only(database_path) as connection:
+            try:
+                return _read_current_version(connection) == target_version()
+            except sqlite3.OperationalError as exc:
+                if "no such table: schema_migrations" in str(exc):
+                    return False
+                raise
+    except (OSError, sqlite3.Error) as exc:
+        logger.warning(
+            "readiness database check failed for %s: %s",
+            database_path,
+            exc,
+        )
         return False
