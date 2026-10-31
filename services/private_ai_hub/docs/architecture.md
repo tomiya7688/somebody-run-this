@@ -29,6 +29,60 @@ Private AI Hubは、企業・組織が自社モデルまたはOSSモデルを自
 
 数値・集合型の設定は管理者の最大値・許可集合を越えない。
 
+## Trust boundary diagram
+
+```mermaid
+flowchart LR
+    User[User PC / Browser] --> API[Chat and Agent API]
+    Admin[Admin Console] --> Control[Control Plane]
+    API --> Control
+    Control --> Policy[Policy Engine]
+    Policy --> Inference[Inference Worker]
+    Policy --> Importer[Model Importer]
+    Policy --> Tools[Tool Gateway / Extension Host]
+    Importer -->|allowed model sources only| Internet[(Internet)]
+    Tools -->|allowed extension egress only| Internet
+    Inference -. no direct egress .-> Internet
+    API --> Data[(User / Project Data Stores)]
+    Control --> Audit[(Audit Store)]
+    Inference --> Models[(Local Model Store)]
+    Importer --> Models
+```
+
+境界を跨ぐ要求は、呼び出し元の指定だけを信用せずPolicy Engineと所有scopeを再評価する。
+
+## Data flow diagram
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as Chat / Agent API
+    participant P as Policy Engine
+    participant D as Scoped Data Store
+    participant I as Inference Worker
+    participant T as Tool Gateway
+    participant X as External Network
+
+    U->>API: request + authenticated identity
+    API->>P: identity, project, requested model/features
+    P-->>API: effective policy + allowed scope
+    API->>D: read context with organization/user/project scope
+    D-->>API: scoped context
+    API->>I: prompt + approved model
+    I-->>API: model output
+    opt approved tool/extension call
+        API->>P: re-authorize tool action
+        P-->>API: allow / ask / deny
+        API->>T: structured approved action
+        T->>X: only if egress policy permits
+        X-->>T: untrusted external result
+        T-->>API: bounded result + source metadata
+    end
+    API-->>U: streamed response
+```
+
+Model ImportはChat/Agent要求とは別経路で、quarantineと検査を経てModel Storeへ昇格する。
+
 ## Trust boundaries
 
 ### Control plane
