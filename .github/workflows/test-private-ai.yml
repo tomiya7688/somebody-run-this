@@ -1,0 +1,31 @@
+name: Test Private AI Hub
+
+on:
+  push:
+    paths:
+      - "services/private_ai_hub/**"
+      - ".github/workflows/test-private-ai.yml"
+  pull_request:
+    paths:
+      - "services/private_ai_hub/**"
+      - ".github/workflows/test-private-ai.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/private_ai_hub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run standard-library bootstrap tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
