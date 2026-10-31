@@ -1,0 +1,6 @@
+[server]
+host = "127.0.0.1"
+port = 8787
+
+[storage]
+sqlite_path = "./data/private_ai_hub.sqlite3"
