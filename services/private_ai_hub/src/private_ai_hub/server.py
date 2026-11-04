@@ -140,12 +140,20 @@ def make_handler(
     class ApiHandler(BaseHTTPRequestHandler):
         server_version = "PrivateAIHubBootstrap/0.2"
 
-        def _send_json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
+        def _send_json(
+            self,
+            status: HTTPStatus,
+            payload: dict[str, object],
+            *,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
             body = _json_bytes(payload)
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in (extra_headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
@@ -154,6 +162,8 @@ def make_handler(
             status: HTTPStatus,
             code: str,
             message: str,
+            *,
+            extra_headers: dict[str, str] | None = None,
         ) -> None:
             self._send_json(
                 status,
@@ -163,6 +173,7 @@ def make_handler(
                         "message": message,
                     }
                 },
+                extra_headers=extra_headers,
             )
 
         def _path(self) -> str:
@@ -333,8 +344,8 @@ def make_handler(
                         HTTPStatus.TOO_MANY_REQUESTS,
                         "login_rate_limited",
                         "Too many login attempts",
+                        extra_headers={"Retry-After": "60"},
                     )
-                    self.send_header("Retry-After", "60")
                     return
 
                 payload = self._read_json_object()
