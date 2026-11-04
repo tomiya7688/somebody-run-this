@@ -172,11 +172,11 @@ MIGRATIONS: tuple[Migration, ...] = (
             id TEXT PRIMARY KEY,
             organization_id TEXT NOT NULL
                 REFERENCES organizations(id) ON DELETE CASCADE,
-            model_key TEXT NOT NULL,
+            model_key TEXT NOT NULL COLLATE NOCASE,
             display_name TEXT NOT NULL,
             source_kind TEXT NOT NULL
                 CHECK (source_kind IN ('local', 'external')),
-            backend_id TEXT NOT NULL,
+            backend_id TEXT NOT NULL COLLATE NOCASE,
             backend_model_id TEXT NOT NULL,
             local_path TEXT,
             revision TEXT,
