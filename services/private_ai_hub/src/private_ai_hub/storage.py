@@ -234,6 +234,11 @@ MIGRATIONS: tuple[Migration, ...] = (
 
         CREATE INDEX model_policy_allowed_model_idx
             ON model_policy_allowed_models(organization_id, model_key);
+
+        INSERT OR IGNORE INTO role_permissions(role_id, permission)
+        SELECT id, 'model.manage'
+        FROM roles
+        WHERE name_key = 'admin' AND built_in = 1;
         """,
     ),
 )
