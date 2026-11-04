@@ -165,6 +165,77 @@ MIGRATIONS: tuple[Migration, ...] = (
             );
         """,
     ),
+    (
+        4,
+        """
+        CREATE TABLE models (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL
+                REFERENCES organizations(id) ON DELETE CASCADE,
+            model_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            source_kind TEXT NOT NULL
+                CHECK (source_kind IN ('local', 'external')),
+            backend_id TEXT NOT NULL,
+            backend_model_id TEXT NOT NULL,
+            local_path TEXT,
+            revision TEXT,
+            digest TEXT,
+            enabled INTEGER NOT NULL DEFAULT 0
+                CHECK (enabled IN (0, 1)),
+            capabilities_json TEXT NOT NULL,
+            context_limit INTEGER,
+            health_state TEXT NOT NULL DEFAULT 'unknown'
+                CHECK (health_state IN ('unknown', 'ready', 'unhealthy')),
+            health_detail TEXT NOT NULL DEFAULT '',
+            last_health_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE (organization_id, model_key),
+            UNIQUE (organization_id, backend_id, backend_model_id),
+            UNIQUE (organization_id, id)
+        );
+
+        CREATE INDEX models_org_enabled_health_idx
+            ON models(organization_id, enabled, health_state, model_key);
+
+        CREATE TABLE model_policy_scopes (
+            organization_id TEXT NOT NULL
+                REFERENCES organizations(id) ON DELETE CASCADE,
+            scope_type TEXT NOT NULL
+                CHECK (scope_type IN ('organization', 'group', 'project')),
+            scope_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            default_model_key TEXT,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (organization_id, scope_type, scope_id),
+            FOREIGN KEY (organization_id, default_model_key)
+                REFERENCES models(organization_id, model_key)
+                ON DELETE SET NULL
+        );
+
+        CREATE TABLE model_policy_allowed_models (
+            organization_id TEXT NOT NULL,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            model_key TEXT NOT NULL,
+            PRIMARY KEY (
+                organization_id, scope_type, scope_id, model_key
+            ),
+            FOREIGN KEY (organization_id, scope_type, scope_id)
+                REFERENCES model_policy_scopes(
+                    organization_id, scope_type, scope_id
+                )
+                ON DELETE CASCADE,
+            FOREIGN KEY (organization_id, model_key)
+                REFERENCES models(organization_id, model_key)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX model_policy_allowed_model_idx
+            ON model_policy_allowed_models(organization_id, model_key);
+        """,
+    ),
 )
 
 
