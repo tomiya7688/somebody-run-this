@@ -206,12 +206,9 @@ MIGRATIONS: tuple[Migration, ...] = (
                 CHECK (scope_type IN ('organization', 'group', 'project')),
             scope_id TEXT NOT NULL,
             revision INTEGER NOT NULL,
-            default_model_key TEXT,
+            default_model_key TEXT COLLATE NOCASE,
             updated_at INTEGER NOT NULL,
-            PRIMARY KEY (organization_id, scope_type, scope_id),
-            FOREIGN KEY (organization_id, default_model_key)
-                REFERENCES models(organization_id, model_key)
-                ON DELETE SET NULL
+            PRIMARY KEY (organization_id, scope_type, scope_id)
         );
 
         CREATE TABLE model_policy_allowed_models (
