@@ -161,6 +161,25 @@ class ServerTests(unittest.TestCase):
                 )
                 self.assertEqual(admin_ping_status, 200)
 
+                conversation_audit_status, _payload, _headers = request_json(
+                    base,
+                    "/v1/admin/audit/conversation",
+                    token=admin_token,
+                )
+                self.assertEqual(conversation_audit_status, 403)
+
+                failed_status, _failed, _headers = request_json(
+                    base,
+                    "/v1/auth/login",
+                    method="POST",
+                    payload={
+                        "organization_id": "acme",
+                        "username": "alice",
+                        "password": "wrong password long enough",
+                    },
+                )
+                self.assertEqual(failed_status, 401)
+
                 user_status, user_login, _headers = request_json(
                     base,
                     "/v1/auth/login",
@@ -200,6 +219,26 @@ class ServerTests(unittest.TestCase):
                     token=user_token,
                 )
                 self.assertEqual(after_logout_status, 401)
+
+                audit_status, audit_payload, _headers = request_json(
+                    base,
+                    "/v1/admin/audit/security?limit=100",
+                    token=admin_token,
+                )
+                self.assertEqual(audit_status, 200)
+                event_types = {
+                    event["event_type"]
+                    for event in audit_payload["events"]
+                }
+                self.assertIn("auth.login.succeeded", event_types)
+                self.assertIn("auth.login.failed", event_types)
+                self.assertIn("authorization.denied", event_types)
+                self.assertIn("auth.logout", event_types)
+
+                serialized_audit = json.dumps(audit_payload)
+                self.assertNotIn(PASSWORD, serialized_audit)
+                self.assertNotIn(admin_token, serialized_audit)
+                self.assertNotIn(user_token, serialized_audit)
             finally:
                 server.shutdown()
                 server.server_close()
