@@ -85,10 +85,12 @@ class EgressPolicy:
     )
     allow_subdomains: bool = True
     allow_http: bool = False
+    allow_https_downgrade: bool = False
     allowed_private_networks: tuple[str, ...] = ()
     timeout_seconds: int = 10
     max_request_bytes: int = 1024 * 1024
     max_response_bytes: int = 4 * 1024 * 1024
+    max_header_bytes: int = 32 * 1024
     max_redirects: int = 3
 
     def __post_init__(self) -> None:
@@ -98,6 +100,8 @@ class EgressPolicy:
             raise ValueError("allow_subdomains must be boolean")
         if not isinstance(self.allow_http, bool):
             raise ValueError("allow_http must be boolean")
+        if not isinstance(self.allow_https_downgrade, bool):
+            raise ValueError("allow_https_downgrade must be boolean")
 
         domains = frozenset(_normalize_host(value) for value in self.allowed_domains)
         methods = frozenset(_normalize_method(value) for value in self.allowed_methods)
@@ -125,6 +129,7 @@ class EgressPolicy:
             ("timeout_seconds", self.timeout_seconds, 1, 300),
             ("max_request_bytes", self.max_request_bytes, 0, 64 * 1024 * 1024),
             ("max_response_bytes", self.max_response_bytes, 1, 64 * 1024 * 1024),
+            ("max_header_bytes", self.max_header_bytes, 1024, 256 * 1024),
             ("max_redirects", self.max_redirects, 0, 10),
         ):
             if isinstance(value, bool) or not isinstance(value, int):
@@ -206,6 +211,9 @@ def _validate_address(
     address: ipaddress._BaseAddress,
     policy: EgressPolicy,
 ) -> None:
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        _validate_address(address.ipv4_mapped, policy)
+        return
     if address.is_loopback:
         raise EgressDenied("loopback destinations are prohibited")
     if address.is_link_local:
@@ -270,6 +278,13 @@ class EgressBroker:
         self._resolver = resolver
         self._connector = connector
         self._ssl_context = ssl_context or ssl.create_default_context()
+        if (
+            not self._ssl_context.check_hostname
+            or self._ssl_context.verify_mode != ssl.CERT_REQUIRED
+        ):
+            raise ValueError(
+                "egress TLS context must require certificate and hostname validation"
+            )
         self.audit_service = audit_service
         self.audit_context = audit_context
 
@@ -340,7 +355,10 @@ class EgressBroker:
         if not self.policy.enabled:
             self._deny("egress policy is disabled", method=method)
 
-        parsed = urlsplit(url)
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            self._deny("egress URL is invalid", method=method)
         scheme = parsed.scheme.casefold()
         if scheme not in {"https", "http"}:
             self._deny("only HTTP(S) egress is supported", method=method)
@@ -419,6 +437,14 @@ class EgressBroker:
 
         if not addresses:
             raise EgressError("DNS resolution returned no usable addresses")
+        if len(addresses) > 32:
+            self._deny(
+                "DNS returned too many addresses",
+                method=method,
+                host=host,
+                port=port,
+                scheme=scheme,
+            )
 
         for raw_address in addresses:
             try:
@@ -513,6 +539,15 @@ class EgressBroker:
             fail_closed=True,
         )
 
+        if len(headers) > 64:
+            self._deny(
+                "request contains too many HTTP headers",
+                method=method,
+                host=host,
+                port=port,
+                scheme=scheme,
+            )
+
         request_headers: list[tuple[str, str]] = [
             ("Host", _host_header(host, port, scheme)),
             ("Connection", "close"),
@@ -527,6 +562,14 @@ class EgressBroker:
             encoded_headers = "".join(
                 f"{name}: {value}\r\n" for name, value in request_headers
             ).encode("latin-1")
+            if len(encoded_headers) > self.policy.max_header_bytes:
+                self._deny(
+                    "request headers exceed configured size limit",
+                    method=method,
+                    host=host,
+                    port=port,
+                    scheme=scheme,
+                )
             request = (
                 f"{method} {path} HTTP/1.1\r\n".encode("ascii")
                 + encoded_headers
@@ -555,11 +598,23 @@ class EgressBroker:
                 except ValueError as exc:
                     raise EgressError("invalid response Content-Length") from exc
                 if declared < 0 or declared > self.policy.max_response_bytes:
-                    raise EgressDenied("response exceeds configured size limit")
+                    self._deny(
+                        "response exceeds configured size limit",
+                        method=method,
+                        host=host,
+                        port=port,
+                        scheme=scheme,
+                    )
 
             response_body = response.read(self.policy.max_response_bytes + 1)
             if len(response_body) > self.policy.max_response_bytes:
-                raise EgressDenied("response exceeds configured size limit")
+                self._deny(
+                    "response exceeds configured size limit",
+                    method=method,
+                    host=host,
+                    port=port,
+                    scheme=scheme,
+                )
 
             return EgressResponse(
                 status=int(response.status),
@@ -626,7 +681,18 @@ class EgressBroker:
             if location is None:
                 return response
             if redirect_count >= self.policy.max_redirects:
-                raise EgressDenied("maximum redirect count exceeded")
+                self._deny(
+                    "maximum redirect count exceeded",
+                    method=resolved_method,
+                )
+            if any(
+                ord(character) < 32 or ord(character) == 127
+                for character in location
+            ):
+                self._deny(
+                    "redirect location contains control characters",
+                    method=resolved_method,
+                )
 
             old = urlsplit(current_url)
             new_url = urljoin(current_url, location)
@@ -645,6 +711,19 @@ class EgressBroker:
 
             old_origin = (old.scheme.casefold(), old_host, old_port)
             new_origin = (new.scheme.casefold(), new_host, new_port)
+
+            if (
+                old_origin[0] == "https"
+                and new_origin[0] == "http"
+                and not self.policy.allow_https_downgrade
+            ):
+                self._deny(
+                    "HTTPS to HTTP redirect downgrade is prohibited",
+                    method=resolved_method,
+                    host=new_host,
+                    port=new_port,
+                    scheme=new_origin[0],
+                )
 
             if previous_origin is None:
                 previous_origin = old_origin
