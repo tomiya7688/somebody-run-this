@@ -137,6 +137,8 @@ class AuthAndRbacTests(unittest.TestCase):
         self.assertIsNotNone(after)
         assert after is not None
         self.assertTrue(after.has_permission(Permission.AGENT_USE))
+        self.assertIn(group.id, after.group_ids)
+        self.assertIn(agent_role.id, after.role_ids)
 
     def test_cross_organization_role_assignment_is_rejected(self) -> None:
         user, _provider = self._create_user("alice")
