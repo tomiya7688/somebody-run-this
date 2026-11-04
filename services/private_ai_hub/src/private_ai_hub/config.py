@@ -25,9 +25,16 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class AuthConfig:
+    session_ttl_seconds: int = 12 * 60 * 60
+    login_attempts_per_minute: int = 10
+
+
+@dataclass(frozen=True)
 class AppConfig:
     server: ServerConfig = ServerConfig()
     storage: StorageConfig = StorageConfig()
+    auth: AuthConfig = AuthConfig()
 
 
 def _read_toml(path: Path | None) -> dict:
@@ -68,10 +75,13 @@ def load_config(
 
     server_raw = raw.get("server", {})
     storage_raw = raw.get("storage", {})
+    auth_raw = raw.get("auth", {})
     if not isinstance(server_raw, dict):
         raise ConfigError("[server] must be a table")
     if not isinstance(storage_raw, dict):
         raise ConfigError("[storage] must be a table")
+    if not isinstance(auth_raw, dict):
+        raise ConfigError("[auth] must be a table")
 
     host = env_map.get("PRIVATE_AI_HOST", server_raw.get("host", "127.0.0.1"))
     port_raw = env_map.get("PRIVATE_AI_PORT", server_raw.get("port", 8787))
@@ -86,6 +96,14 @@ def load_config(
     sqlite_path_raw = env_map.get(
         "PRIVATE_AI_SQLITE_PATH",
         storage_raw.get("sqlite_path", "./data/private_ai_hub.sqlite3"),
+    )
+    session_ttl_raw = env_map.get(
+        "PRIVATE_AI_SESSION_TTL_SECONDS",
+        auth_raw.get("session_ttl_seconds", 12 * 60 * 60),
+    )
+    login_attempts_raw = env_map.get(
+        "PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE",
+        auth_raw.get("login_attempts_per_minute", 10),
     )
 
     if not isinstance(host, str) or not host.strip():
@@ -110,6 +128,24 @@ def load_config(
     if not isinstance(sqlite_path_raw, (str, os.PathLike)) or not str(sqlite_path_raw).strip():
         raise ConfigError("storage.sqlite_path must be a non-empty path")
 
+    session_ttl_seconds = _as_int(
+        session_ttl_raw,
+        field="auth.session_ttl_seconds",
+    )
+    if not 300 <= session_ttl_seconds <= 31 * 24 * 60 * 60:
+        raise ConfigError(
+            "auth.session_ttl_seconds must be between 300 seconds and 31 days"
+        )
+
+    login_attempts_per_minute = _as_int(
+        login_attempts_raw,
+        field="auth.login_attempts_per_minute",
+    )
+    if not 1 <= login_attempts_per_minute <= 1000:
+        raise ConfigError(
+            "auth.login_attempts_per_minute must be between 1 and 1000"
+        )
+
     return AppConfig(
         server=ServerConfig(
             host=host.strip(),
@@ -118,4 +154,8 @@ def load_config(
             max_connections=max_connections,
         ),
         storage=StorageConfig(sqlite_path=Path(sqlite_path_raw)),
+        auth=AuthConfig(
+            session_ttl_seconds=session_ttl_seconds,
+            login_attempts_per_minute=login_attempts_per_minute,
+        ),
     )

@@ -15,6 +15,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.server.request_timeout_seconds, 10)
         self.assertEqual(config.server.max_connections, 64)
         self.assertEqual(config.storage.sqlite_path, Path("./data/private_ai_hub.sqlite3"))
+        self.assertEqual(config.auth.session_ttl_seconds, 43200)
+        self.assertEqual(config.auth.login_attempts_per_minute, 10)
 
     def test_toml_and_environment_override(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -22,7 +24,9 @@ class ConfigTests(unittest.TestCase):
             path.write_text(
                 '[server]\nhost = "0.0.0.0"\nport = 9000\n'
                 'request_timeout_seconds = 20\nmax_connections = 32\n'
-                '[storage]\nsqlite_path = "./state.db"\n',
+                '[storage]\nsqlite_path = "./state.db"\n'
+                '[auth]\nsession_ttl_seconds = 7200\n'
+                'login_attempts_per_minute = 20\n',
                 encoding="utf-8",
             )
             config = load_config(
@@ -31,6 +35,7 @@ class ConfigTests(unittest.TestCase):
                     "PRIVATE_AI_PORT": "9100",
                     "PRIVATE_AI_MAX_CONNECTIONS": "48",
                     "PRIVATE_AI_SQLITE_PATH": "./override.db",
+                    "PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "25",
                 },
             )
             self.assertEqual(config.server.host, "0.0.0.0")
@@ -38,6 +43,8 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.server.request_timeout_seconds, 20)
             self.assertEqual(config.server.max_connections, 48)
             self.assertEqual(config.storage.sqlite_path, Path("./override.db"))
+            self.assertEqual(config.auth.session_ttl_seconds, 7200)
+            self.assertEqual(config.auth.login_attempts_per_minute, 25)
 
     def test_rejects_invalid_port(self) -> None:
         with self.assertRaises(ConfigError):
@@ -49,6 +56,12 @@ class ConfigTests(unittest.TestCase):
             path.write_text("[server]\nport = 8787.5\n", encoding="utf-8")
             with self.assertRaises(ConfigError):
                 load_config(path, env={})
+
+    def test_rejects_invalid_auth_limits(self) -> None:
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_SESSION_TTL_SECONDS": "10"})
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "0"})
 
     def test_unreadable_config_path_is_config_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

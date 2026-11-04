@@ -20,6 +20,93 @@ MIGRATIONS: tuple[Migration, ...] = (
         );
         """,
     ),
+    (
+        2,
+        """
+        CREATE TABLE organizations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            username_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            UNIQUE (organization_id, username_key)
+        );
+
+        CREATE TABLE local_credentials (
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            salt BLOB NOT NULL,
+            password_hash BLOB NOT NULL,
+            scrypt_n INTEGER NOT NULL,
+            scrypt_r INTEGER NOT NULL,
+            scrypt_p INTEGER NOT NULL,
+            dklen INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE groups (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE (organization_id, name_key)
+        );
+
+        CREATE TABLE roles (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL,
+            built_in INTEGER NOT NULL DEFAULT 0 CHECK (built_in IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            UNIQUE (organization_id, name_key)
+        );
+
+        CREATE TABLE role_permissions (
+            role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            permission TEXT NOT NULL,
+            PRIMARY KEY (role_id, permission)
+        );
+
+        CREATE TABLE user_roles (
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, role_id)
+        );
+
+        CREATE TABLE group_roles (
+            group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            PRIMARY KEY (group_id, role_id)
+        );
+
+        CREATE TABLE group_memberships (
+            group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            PRIMARY KEY (group_id, user_id)
+        );
+
+        CREATE TABLE sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            provider_id TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            revoked_at INTEGER
+        );
+
+        CREATE INDEX sessions_user_idx ON sessions(user_id);
+        CREATE INDEX sessions_expiry_idx ON sessions(expires_at);
+        """,
+    ),
 )
 
 
