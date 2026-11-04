@@ -5,13 +5,20 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import json
+import logging
 from pathlib import Path
 import socket
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
+from .audit import (
+    AuditService,
+    AuditSettings,
+    ConversationAuditEvent,
+    SecurityAuditEvent,
+)
 from .auth import (
     AuthService,
     AuthenticationError,
@@ -21,6 +28,8 @@ from .auth import (
 from .identity import AuthorizationError, Permission, Principal, require_permission
 from .storage import is_ready
 
+
+logger = logging.getLogger(__name__)
 
 _MAX_AUTH_BODY_BYTES = 16 * 1024
 _MAX_AUTHORIZATION_HEADER_BYTES = 4096
@@ -146,13 +155,47 @@ def _principal_payload(principal: Principal) -> dict[str, object]:
     }
 
 
+def _security_event_payload(event: SecurityAuditEvent) -> dict[str, object]:
+    return {
+        "id": event.id,
+        "organization_id": event.organization_id,
+        "actor_user_id": event.actor_user_id,
+        "event_type": event.event_type,
+        "occurred_at": event.occurred_at,
+        "metadata": dict(event.metadata),
+        "previous_hash": event.previous_hash,
+        "event_hash": event.event_hash,
+    }
+
+
+def _conversation_event_payload(
+    event: ConversationAuditEvent,
+) -> dict[str, object]:
+    return {
+        "id": event.id,
+        "organization_id": event.organization_id,
+        "owner_user_id": event.owner_user_id,
+        "actor_user_id": event.actor_user_id,
+        "project_id": event.project_id,
+        "conversation_id": event.conversation_id,
+        "event_type": event.event_type,
+        "occurred_at": event.occurred_at,
+        "metadata": dict(event.metadata),
+        "prompt_content": event.prompt_content,
+        "response_content": event.response_content,
+        "previous_hash": event.previous_hash,
+        "event_hash": event.event_hash,
+    }
+
+
 def make_handler(
     storage_path: Path,
     auth_service: AuthService,
     login_limiter: LoginRateLimiter,
+    audit_service: AuditService,
 ) -> type[BaseHTTPRequestHandler]:
     class ApiHandler(BaseHTTPRequestHandler):
-        server_version = "PrivateAIHubBootstrap/0.2"
+        server_version = "PrivateAIHubBootstrap/0.3"
 
         def _send_json(
             self,
@@ -190,8 +233,11 @@ def make_handler(
                 extra_headers=extra_headers,
             )
 
+        def _parsed_url(self):
+            return urlsplit(self.path)
+
         def _path(self) -> str:
-            return urlsplit(self.path).path
+            return self._parsed_url().path
 
         def _client_key(self) -> str:
             if isinstance(self.client_address, tuple) and self.client_address:
@@ -265,6 +311,33 @@ def make_handler(
             token = token.strip()
             return token or None
 
+        def _audit_security(
+            self,
+            event_type: str,
+            *,
+            organization_id: str,
+            actor_user_id: str | None = None,
+            metadata: dict[str, object] | None = None,
+            fail_closed: bool = True,
+        ) -> bool:
+            try:
+                audit_service.record_security(
+                    event_type,
+                    organization_id=organization_id,
+                    actor_user_id=actor_user_id,
+                    metadata=metadata,
+                )
+                return True
+            except Exception:
+                logger.exception("failed to record security audit event")
+                if fail_closed:
+                    self._send_error_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "audit_unavailable",
+                        "Security audit is temporarily unavailable",
+                    )
+                return False
+
         def _require_principal(
             self,
             permission: Permission | None = None,
@@ -289,6 +362,16 @@ def make_handler(
                 try:
                     require_permission(principal, permission)
                 except AuthorizationError:
+                    if not self._audit_security(
+                        "authorization.denied",
+                        organization_id=principal.user.organization_id,
+                        actor_user_id=principal.user.id,
+                        metadata={
+                            "permission": permission.value,
+                            "path": self._path(),
+                        },
+                    ):
+                        return None
                     self._send_error_json(
                         HTTPStatus.FORBIDDEN,
                         "permission_denied",
@@ -296,6 +379,35 @@ def make_handler(
                     )
                     return None
             return principal, token
+
+        def _query_limit(self, *, default: int = 100) -> int | None:
+            values = parse_qs(self._parsed_url().query).get("limit")
+            if not values:
+                return default
+            if len(values) != 1:
+                self._send_error_json(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_limit",
+                    "limit must be supplied once",
+                )
+                return None
+            try:
+                limit = int(values[0], 10)
+            except ValueError:
+                self._send_error_json(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_limit",
+                    "limit must be an integer",
+                )
+                return None
+            if not 1 <= limit <= 1000:
+                self._send_error_json(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_limit",
+                    "limit must be between 1 and 1000",
+                )
+                return None
+            return limit
 
         def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
             path = self._path()
@@ -344,6 +456,71 @@ def make_handler(
                     },
                 )
                 return
+            if path == "/v1/admin/audit/security":
+                authenticated = self._require_principal(
+                    Permission.SECURITY_AUDIT_READ
+                )
+                if authenticated is None:
+                    return
+                principal, _token = authenticated
+                limit = self._query_limit()
+                if limit is None:
+                    return
+                try:
+                    events = audit_service.list_security(
+                        principal,
+                        limit=limit,
+                    )
+                except (AuthorizationError, ValueError):
+                    self._send_error_json(
+                        HTTPStatus.FORBIDDEN,
+                        "permission_denied",
+                        "Permission denied",
+                    )
+                    return
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "events": [
+                            _security_event_payload(event)
+                            for event in events
+                        ]
+                    },
+                )
+                return
+            if path == "/v1/admin/audit/conversation":
+                authenticated = self._require_principal(
+                    Permission.CONVERSATION_AUDIT_READ
+                )
+                if authenticated is None:
+                    return
+                principal, _token = authenticated
+                limit = self._query_limit()
+                if limit is None:
+                    return
+                try:
+                    events = audit_service.list_conversation(
+                        principal,
+                        limit=limit,
+                    )
+                except (AuthorizationError, ValueError):
+                    self._send_error_json(
+                        HTTPStatus.FORBIDDEN,
+                        "permission_denied",
+                        "Permission denied",
+                    )
+                    return
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "events": [
+                            _conversation_event_payload(event)
+                            for event in events
+                        ]
+                    },
+                )
+                return
+
             self._send_error_json(
                 HTTPStatus.NOT_FOUND,
                 "not_found",
@@ -354,7 +531,45 @@ def make_handler(
             path = self._path()
 
             if path == "/v1/auth/login":
+                payload = self._read_json_object()
+                if payload is None:
+                    return
+                organization_id = payload.get("organization_id")
+                username = payload.get("username")
+                password = payload.get("password")
+                provider_id = payload.get("provider", LOCAL_PROVIDER_ID)
+                if not (
+                    isinstance(organization_id, str)
+                    and 1 <= len(organization_id.strip()) <= 128
+                    and isinstance(username, str)
+                    and 1 <= len(username.strip()) <= 128
+                    and isinstance(password, str)
+                    and 1 <= len(password.encode("utf-8")) <= 1024
+                    and isinstance(provider_id, str)
+                    and 1 <= len(provider_id.strip()) <= 64
+                ):
+                    self._send_error_json(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid_login_request",
+                        "Required login fields are invalid",
+                    )
+                    return
+
+                organization_id = organization_id.strip()
+                username = username.strip()
+                provider_id = provider_id.strip()
+
                 if not login_limiter.allow(self._client_key()):
+                    if not self._audit_security(
+                        "auth.login.rate_limited",
+                        organization_id=organization_id,
+                        metadata={
+                            "provider": provider_id,
+                            "username": username,
+                            "client_ip": self._client_key(),
+                        },
+                    ):
+                        return
                     self._send_error_json(
                         HTTPStatus.TOO_MANY_REQUESTS,
                         "login_rate_limited",
@@ -363,28 +578,6 @@ def make_handler(
                     )
                     return
 
-                payload = self._read_json_object()
-                if payload is None:
-                    return
-                organization_id = payload.get("organization_id")
-                username = payload.get("username")
-                password = payload.get("password")
-                provider_id = payload.get("provider", LOCAL_PROVIDER_ID)
-                if not all(
-                    isinstance(value, str) and value
-                    for value in (
-                        organization_id,
-                        username,
-                        password,
-                        provider_id,
-                    )
-                ):
-                    self._send_error_json(
-                        HTTPStatus.BAD_REQUEST,
-                        "invalid_login_request",
-                        "Required login fields are missing",
-                    )
-                    return
                 try:
                     result = auth_service.login(
                         organization_id=organization_id,
@@ -393,11 +586,33 @@ def make_handler(
                         secret=password,
                     )
                 except AuthenticationError:
+                    if not self._audit_security(
+                        "auth.login.failed",
+                        organization_id=organization_id,
+                        metadata={
+                            "provider": provider_id,
+                            "username": username,
+                            "client_ip": self._client_key(),
+                        },
+                    ):
+                        return
                     self._send_error_json(
                         HTTPStatus.UNAUTHORIZED,
                         "authentication_failed",
                         "Authentication failed",
                     )
+                    return
+
+                if not self._audit_security(
+                    "auth.login.succeeded",
+                    organization_id=result.principal.user.organization_id,
+                    actor_user_id=result.principal.user.id,
+                    metadata={
+                        "provider": provider_id,
+                        "client_ip": self._client_key(),
+                    },
+                ):
+                    auth_service.logout(result.session.value)
                     return
 
                 response = _principal_payload(result.principal)
@@ -415,8 +630,15 @@ def make_handler(
                 authenticated = self._require_principal()
                 if authenticated is None:
                     return
-                _principal, token = authenticated
+                principal, token = authenticated
                 auth_service.logout(token)
+                self._audit_security(
+                    "auth.logout",
+                    organization_id=principal.user.organization_id,
+                    actor_user_id=principal.user.id,
+                    metadata={"scope": "current_session"},
+                    fail_closed=False,
+                )
                 self._send_json(HTTPStatus.OK, {"status": "logged_out"})
                 return
 
@@ -426,6 +648,13 @@ def make_handler(
                     return
                 principal, _token = authenticated
                 auth_service.logout_all(principal)
+                self._audit_security(
+                    "auth.logout_all",
+                    organization_id=principal.user.organization_id,
+                    actor_user_id=principal.user.id,
+                    metadata={"scope": "all_sessions"},
+                    fail_closed=False,
+                )
                 self._send_json(
                     HTTPStatus.OK,
                     {"status": "all_sessions_revoked"},
@@ -455,6 +684,8 @@ def build_server(
     session_ttl_seconds: int = 12 * 60 * 60,
     login_attempts_per_minute: int = 10,
     auth_service: AuthService | None = None,
+    audit_service: AuditService | None = None,
+    audit_settings: AuditSettings | None = None,
 ) -> BoundedThreadingHTTPServer:
     service = auth_service
     if service is None:
@@ -462,12 +693,24 @@ def build_server(
             storage_path,
             session_ttl_seconds=session_ttl_seconds,
         )
+
+    resolved_audit = audit_service or AuditService(
+        storage_path,
+        audit_settings or AuditSettings(),
+    )
+    resolved_audit.purge_expired()
+
     limiter = LoginRateLimiter(
         attempts_per_minute=login_attempts_per_minute
     )
     return BoundedThreadingHTTPServer(
         (host, port),
-        make_handler(storage_path, service, limiter),
+        make_handler(
+            storage_path,
+            service,
+            limiter,
+            resolved_audit,
+        ),
         max_connections=max_connections,
         request_timeout_seconds=request_timeout_seconds,
         address_family=_address_family_for_host(host),
