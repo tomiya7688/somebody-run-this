@@ -96,6 +96,15 @@ class VllmBackendConfig:
         if not isinstance(self.runtime_dir, Path):
             object.__setattr__(self, "runtime_dir", Path(self.runtime_dir))
 
+        for name, path in (
+            ("executable", self.executable),
+            ("model_store_root", self.model_store_root),
+            ("model_path", self.model_path),
+            ("runtime_dir", self.runtime_dir),
+        ):
+            if not path.is_absolute():
+                raise ValueError(f"{name} must be an absolute path")
+
         if not isinstance(self.model_id, str) or not _MODEL_ID_PATTERN.fullmatch(
             self.model_id
         ):
@@ -199,6 +208,8 @@ def _resolved_model_path(root: Path, model_path: Path) -> tuple[Path, Path]:
 
 
 def _prepare_private_directory(path: Path) -> Path:
+    if path.is_symlink():
+        raise RuntimeSecurityError("runtime directory cannot be a symlink")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     resolved = path.resolve(strict=True)
     info = os.lstat(resolved)
@@ -342,8 +353,8 @@ def build_vllm_command(
     socket_path: Path,
     isolation_prefix: tuple[str, ...] | None = None,
 ) -> list[str]:
-    prefix = (
-        _reviewed_isolation_prefix(config.isolation_prefix)
+    prefix = _reviewed_isolation_prefix(
+        config.isolation_prefix
         if isolation_prefix is None
         else isolation_prefix
     )
@@ -484,15 +495,10 @@ class OpenAICompatibleUnixClient:
     ) -> None:
         if response.status < 400:
             return
-        payload = self._bounded_json(response)
-        error = payload.get("error")
-        if isinstance(error, dict):
-            message = error.get("message")
-            if isinstance(message, str) and message:
-                raise InferenceError(
-                    f"vLLM request failed with HTTP {response.status}: "
-                    f"{message[:512]}"
-                )
+        # Consume a bounded error body so the connection can close cleanly,
+        # but do not propagate runtime error text: it may contain prompt/model
+        # details that should not become application logs.
+        self._bounded_json(response)
         raise InferenceError(
             f"vLLM request failed with HTTP {response.status}"
         )
