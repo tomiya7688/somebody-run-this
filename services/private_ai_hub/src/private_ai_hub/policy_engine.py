@@ -319,9 +319,24 @@ class PolicyEngine:
         *,
         default_feature_mode: FeatureMode = FeatureMode.DISABLED,
         default_deny_choices: bool = True,
+        root_source: str = "organization",
     ) -> None:
         self.default_feature_mode = FeatureMode(default_feature_mode)
         self.default_deny_choices = bool(default_deny_choices)
+        self.root_source = _policy_key(root_source)
+
+    def _root_layer(
+        self,
+        layers: tuple[PolicyLayer, ...],
+    ) -> PolicyLayer | None:
+        matches = tuple(
+            layer for layer in layers if layer.name == self.root_source
+        )
+        if len(matches) > 1:
+            raise ValueError(
+                f"multiple root policy layers named {self.root_source!r}"
+            )
+        return matches[0] if matches else None
 
     def resolve_feature(
         self,
@@ -338,14 +353,37 @@ class PolicyEngine:
             raise TypeError("capability_available must be boolean")
 
         reasons: list[PolicyReason] = []
-        configured = False
-        allowed = frozenset({False, True})
+        root = self._root_layer(layers)
+        root_mode = root.features.get(policy_key) if root is not None else None
+
+        if root_mode is None:
+            allowed = _feature_values(self.default_feature_mode)
+            reasons.append(
+                PolicyReason(
+                    code="root_default_feature_mode",
+                    source=self.root_source,
+                    detail=(
+                        f"{policy_key}={self.default_feature_mode.value} "
+                        "because the root policy did not explicitly allow it"
+                    ),
+                )
+            )
+        else:
+            allowed = _feature_values(root_mode)
+            reasons.append(
+                PolicyReason(
+                    code="feature_constraint",
+                    source=root.name,
+                    detail=f"{policy_key}={root_mode.value}",
+                )
+            )
 
         for layer in layers:
+            if root is not None and layer is root:
+                continue
             mode = layer.features.get(policy_key)
             if mode is None:
                 continue
-            configured = True
             allowed = allowed.intersection(_feature_values(mode))
             reasons.append(
                 PolicyReason(
@@ -364,18 +402,6 @@ class PolicyEngine:
                     reasons=tuple(reasons),
                     source_revisions=_source_revisions(layers),
                 )
-
-        if not configured:
-            allowed = _feature_values(self.default_feature_mode)
-            reasons.append(
-                PolicyReason(
-                    code="default_feature_mode",
-                    source="engine",
-                    detail=(
-                        f"{policy_key}={self.default_feature_mode.value}"
-                    ),
-                )
-            )
 
         if not capability_available:
             capability_limited = allowed.intersection({False})
@@ -564,13 +590,45 @@ class PolicyEngine:
             )
         ]
 
-        configured = False
-        allowed = available
+        root = self._root_layer(layers)
+        root_values = (
+            root.allowed_values.get(policy_key)
+            if root is not None
+            else None
+        )
+
+        if root_values is None:
+            allowed = frozenset() if deny_by_default else available
+            if deny_by_default:
+                reasons.append(
+                    PolicyReason(
+                        code="root_default_deny",
+                        source=self.root_source,
+                        detail=(
+                            f"{policy_key}=deny because the root policy "
+                            "did not explicitly allow any value"
+                        ),
+                    )
+                )
+        else:
+            allowed = available.intersection(root_values)
+            reasons.append(
+                PolicyReason(
+                    code="allowed_values",
+                    source=root.name,
+                    detail=(
+                        f"{policy_key} allows "
+                        f"{','.join(sorted(root_values)) or '<none>'}"
+                    ),
+                )
+            )
+
         for layer in layers:
+            if root is not None and layer is root:
+                continue
             layer_values = layer.allowed_values.get(policy_key)
             if layer_values is None:
                 continue
-            configured = True
             allowed = allowed.intersection(layer_values)
             reasons.append(
                 PolicyReason(
@@ -580,16 +638,6 @@ class PolicyEngine:
                         f"{policy_key} allows "
                         f"{','.join(sorted(layer_values)) or '<none>'}"
                     ),
-                )
-            )
-
-        if not configured and deny_by_default:
-            allowed = frozenset()
-            reasons.append(
-                PolicyReason(
-                    code="default_deny",
-                    source="engine",
-                    detail=f"{policy_key}=deny unless explicitly allowlisted",
                 )
             )
 
