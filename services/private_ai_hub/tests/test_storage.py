@@ -6,7 +6,15 @@ import tempfile
 import threading
 import unittest
 
-from private_ai_hub.storage import connect, current_version, initialize, is_ready, migrate, target_version
+from private_ai_hub.storage import (
+    MIGRATIONS,
+    connect,
+    current_version,
+    initialize,
+    is_ready,
+    migrate,
+    target_version,
+)
 
 
 class StorageTests(unittest.TestCase):
@@ -69,6 +77,46 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(errors, [])
             self.assertTrue(is_ready(path))
+
+    def test_model_registry_migration_upgrades_builtin_admin_permission(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.sqlite3"
+            with connect(path) as connection:
+                migrate(connection, MIGRATIONS[:3])
+                connection.execute(
+                    """
+                    INSERT INTO organizations(id, name, created_at)
+                    VALUES ('acme', 'Acme', 1)
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO roles(
+                        id, organization_id, name, name_key, built_in, created_at
+                    )
+                    VALUES ('admin-role', 'acme', 'admin', 'admin', 1, 1)
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO role_permissions(role_id, permission)
+                    VALUES ('admin-role', 'admin.manage')
+                    """
+                )
+
+                migrate(connection, MIGRATIONS)
+
+                permissions = {
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT permission
+                        FROM role_permissions
+                        WHERE role_id = 'admin-role'
+                        """
+                    )
+                }
+                self.assertIn("model.manage", permissions)
 
     def test_corrupt_database_returns_not_ready_and_logs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
