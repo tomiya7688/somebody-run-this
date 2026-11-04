@@ -9,12 +9,18 @@ import tempfile
 import threading
 import unittest
 
-from private_ai_hub.inference import ChatMessage, ChatRequest
+from private_ai_hub.inference import (
+    BackendState,
+    BackendUnavailable,
+    ChatMessage,
+    ChatRequest,
+)
 from private_ai_hub.vllm_backend import (
     OpenAICompatibleUnixClient,
     REVIEWED_VLLM_VERSION,
     RuntimeSecurityError,
     RuntimeVersionError,
+    VllmBackend,
     VllmBackendConfig,
     _resolved_model_path,
     build_runtime_environment,
@@ -193,6 +199,52 @@ class VllmSecurityTests(unittest.TestCase):
         self.assertIn("--disable-uvicorn-access-log", command)
         self.assertNotIn("--host", command)
         self.assertNotIn("--port", command)
+
+    def test_unreviewed_isolation_prefix_is_rejected(self) -> None:
+        config = VllmBackendConfig(
+            executable=Path("/opt/private-ai/vllm/bin/vllm"),
+            model_store_root=Path("/var/lib/private-ai/models"),
+            model_path=Path("/var/lib/private-ai/models/qwen"),
+            model_id="qwen",
+            runtime_dir=Path("/run/private-ai/qwen"),
+            isolation_prefix=("/usr/bin/env", "--net", "--"),
+        )
+        with self.assertRaises(RuntimeSecurityError):
+            build_vllm_command(
+                config,
+                executable=config.executable,
+                model_path=config.model_path,
+                socket_path=config.runtime_dir / "vllm.sock",
+            )
+
+    def test_worker_exit_is_reported_unhealthy(self) -> None:
+        config = VllmBackendConfig(
+            executable=Path("/opt/private-ai/vllm/bin/vllm"),
+            model_store_root=Path("/var/lib/private-ai/models"),
+            model_path=Path("/var/lib/private-ai/models/qwen"),
+            model_id="qwen",
+            runtime_dir=Path("/run/private-ai/qwen"),
+        )
+        backend = VllmBackend(config, base_environment={})
+
+        class ExitedProcess:
+            returncode = 17
+
+            def poll(self):
+                return 17
+
+        class NeverCalledClient:
+            def models(self):
+                raise AssertionError("client should not be called after worker exit")
+
+        backend._state = BackendState.READY
+        backend._process = ExitedProcess()  # type: ignore[assignment]
+        backend._client = NeverCalledClient()  # type: ignore[assignment]
+
+        report = backend.health()
+        self.assertFalse(report.ready)
+        self.assertEqual(report.state, BackendState.UNHEALTHY)
+        self.assertIn("worker exited", report.detail)
 
     def test_unix_client_chat_and_model_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
