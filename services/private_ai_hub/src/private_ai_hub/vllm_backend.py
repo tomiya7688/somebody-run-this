@@ -246,6 +246,7 @@ def build_runtime_environment(
             "HOME": str(runtime_home),
             "XDG_CACHE_HOME": str(runtime_home / ".cache"),
             "HF_HOME": str(runtime_home / ".cache" / "huggingface"),
+            "TMPDIR": str(runtime_home / "tmp"),
             "HF_HUB_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1",
             "TRANSFORMERS_OFFLINE": "1",
@@ -288,6 +289,7 @@ def inspect_vllm_runtime(
             errors="replace",
             timeout=10,
             env=environment,
+            cwd=runtime_home,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -676,10 +678,20 @@ class VllmBackend:
                 "so the worker can run in a no-egress network namespace"
             )
 
-    def _prepare(self) -> tuple[RuntimeInspection, Path, Path, Path, dict[str, str]]:
+    def _prepare(
+        self,
+    ) -> tuple[
+        RuntimeInspection,
+        Path,
+        Path,
+        Path,
+        dict[str, str],
+        tuple[str, ...],
+    ]:
         self._require_linux()
         runtime_dir = _prepare_private_directory(self.config.runtime_dir)
         runtime_home = _prepare_private_directory(runtime_dir / "home")
+        _prepare_private_directory(runtime_home / "tmp")
         isolation_prefix = _inspect_isolation_launcher(
             self.config.isolation_prefix
         )
@@ -742,6 +754,7 @@ class VllmBackend:
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
                     env=environment,
+                    cwd=runtime_dir,
                     close_fds=True,
                     start_new_session=True,
                     umask=0o077,
