@@ -926,20 +926,19 @@ class ModelRegistry:
                     project_scope.default_model_id,
                 )
 
-        group_defaults = {
-            scope.default_model_id
-            for group_id in principal.group_ids
-            if (
-                scope := self.get_policy_scope(
-                    organization_id,
-                    ModelPolicyScopeType.GROUP,
-                    group_id,
-                )
+        group_defaults: set[str] = set()
+        for group_id in principal.group_ids:
+            group_scope = self.get_policy_scope(
+                organization_id,
+                ModelPolicyScopeType.GROUP,
+                group_id,
             )
-            is not None
-            and scope.default_model_id is not None
-            and scope.default_model_id in allowed
-        }
+            if (
+                group_scope is not None
+                and group_scope.default_model_id is not None
+                and group_scope.default_model_id in allowed
+            ):
+                group_defaults.add(group_scope.default_model_id)
         if len(group_defaults) == 1:
             return self.get_model(
                 organization_id,
