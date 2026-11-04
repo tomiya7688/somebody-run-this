@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import time
-from typing import Mapping, Sequence
+from typing import Mapping
 
 from .identity import AuthorizationError, Permission, Principal, require_permission
 from .storage import connect
@@ -713,7 +714,7 @@ class AuditService:
                     if str(row[4]) != current_hash:
                         return False
                     expected = _hash_payload(current_hash, payload)
-                    if not hashlib.compare_digest(
+                    if not hmac.compare_digest(
                         expected.encode("ascii"),
                         str(row[5]).encode("ascii"),
                     ):
@@ -748,7 +749,7 @@ class AuditService:
                     if str(row[9]) != current_hash:
                         return False
                     expected = _hash_payload(current_hash, payload)
-                    if not hashlib.compare_digest(
+                    if not hmac.compare_digest(
                         expected.encode("ascii"),
                         str(row[10]).encode("ascii"),
                     ):
