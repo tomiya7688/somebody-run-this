@@ -129,6 +129,8 @@ def _principal_payload(principal: Principal) -> dict[str, object]:
             "display_name": principal.user.display_name,
         },
         "permissions": sorted(principal.permissions),
+        "group_ids": sorted(principal.group_ids),
+        "role_ids": sorted(principal.role_ids),
     }
 
 
