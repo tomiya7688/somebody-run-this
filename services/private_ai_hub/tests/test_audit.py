@@ -220,6 +220,47 @@ class AuditTests(unittest.TestCase):
         events = service.list_security(admin)
         self.assertEqual([event.event_type for event in events], ["new.one"])
 
+    def test_retention_refuses_to_anchor_a_tampered_chain(self) -> None:
+        service = AuditService(
+            self.path,
+            AuditSettings(retention_days=1),
+        )
+        service.record_security(
+            "old.one",
+            organization_id="acme",
+            metadata={"value": 1},
+            occurred_at=10,
+        )
+        service.record_security(
+            "new.one",
+            organization_id="acme",
+            metadata={"value": 2},
+            occurred_at=200_000,
+        )
+        with connect(self.path) as connection:
+            connection.execute(
+                """
+                UPDATE security_audit_events
+                SET metadata_json = ?
+                WHERE event_type = ?
+                """,
+                ('{"tampered":true}', "old.one"),
+            )
+
+        with self.assertRaises(RuntimeError):
+            service.purge_expired(now=200_000)
+
+        with connect(self.path) as connection:
+            count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM security_audit_events
+                WHERE organization_id = ?
+                """,
+                ("acme",),
+            ).fetchone()[0]
+        self.assertEqual(count, 2)
+
     def test_admin_change_is_authorized_and_secret_values_are_redacted(self) -> None:
         service = AuditService(self.path)
         admin = self._principal(
