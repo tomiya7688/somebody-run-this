@@ -185,14 +185,14 @@ def _model_key(value: object) -> str:
     normalized = _non_empty(value, field="model_id", maximum=128)
     if not _MODEL_KEY_PATTERN.fullmatch(normalized):
         raise ModelRegistryError("model_id contains unsupported characters")
-    return normalized
+    return normalized.casefold()
 
 
 def _backend_key(value: object) -> str:
     normalized = _non_empty(value, field="backend_id", maximum=128)
     if not _BACKEND_KEY_PATTERN.fullmatch(normalized):
         raise ModelRegistryError("backend_id contains unsupported characters")
-    return normalized
+    return normalized.casefold()
 
 
 def _backend_model_id(value: object) -> str:
