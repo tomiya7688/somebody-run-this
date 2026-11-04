@@ -61,3 +61,32 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 詳細は `docs/policy-engine.md` を参照してください。
 
 認証済みユーザー向けHTTP effective-policy endpointは、RBAC/認証 (#23) を実装した後に公開します。Policy判定ロジック自体はHTTPから独立させ、通常Chat、Agent App、管理UIのすべてから同じEngineを使います。
+
+## 認証 / RBAC
+
+v1の最小認証はlocal accountです。初期管理者はpasswordをコマンドライン引数へ載せず、対話入力で作成します。
+
+```bash
+PYTHONPATH=src python -m private_ai_hub \
+  --config config.example.toml \
+  --create-admin \
+  --organization-id default \
+  --organization-name "Example Company" \
+  --username admin
+```
+
+最小API:
+
+- `POST /v1/auth/login`
+- `POST /v1/auth/logout`
+- `POST /v1/auth/logout-all`
+- `GET /v1/me`
+- `GET /v1/admin/ping`
+
+sessionはBearer tokenで、DBにはtokenのSHA-256 digestだけを保存します。
+
+built-in `admin` roleはPolicy/User/Project/Security Audit管理権限を持ちますが、**Conversation Audit本文閲覧権限は持ちません**。本文監査は別の `compliance-auditor` roleへ分離します。
+
+認証Provider固有のpassword/credentialはUser domainへ入れません。将来OIDC/LDAP/SAML等を追加しても同じUser/RBACを利用します。
+
+詳細は `docs/auth-rbac.md` を参照してください。
