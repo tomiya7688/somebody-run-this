@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from pathlib import Path
 import socket
+import ssl
 import tempfile
 import threading
 import unittest
@@ -44,6 +45,16 @@ class PeerSocket:
 
     def __getattr__(self, name: str):
         return getattr(self._sock, name)
+
+
+class PassthroughTLSContext:
+    check_hostname = True
+    verify_mode = ssl.CERT_REQUIRED
+
+    def wrap_socket(self, sock, *, server_hostname: str):
+        if not server_hostname:
+            raise AssertionError("server_hostname is required")
+        return sock
 
 
 class ScriptedConnector:
@@ -163,6 +174,21 @@ class EgressTests(unittest.TestCase):
                 with self.assertRaises(EgressDenied):
                     broker.request("GET", f"http://{rendered}/")
 
+    def test_ipv4_mapped_ipv6_loopback_is_denied(self) -> None:
+        host = "::ffff:127.0.0.1"
+        broker = EgressBroker(
+            profile=NetworkProfile.RESTRICTED_EGRESS,
+            policy=EgressPolicy(
+                enabled=True,
+                allowed_domains={host},
+                allowed_methods={"GET"},
+                allowed_ports={80},
+                allow_http=True,
+            ),
+        )
+        with self.assertRaises(EgressDenied):
+            broker.request("GET", f"http://[{host}]/")
+
     def test_mixed_public_private_dns_answer_is_denied(self) -> None:
         connector = ScriptedConnector([response()])
 
@@ -262,6 +288,44 @@ class EgressTests(unittest.TestCase):
             broker.request("GET", "http://example.com/start")
         self.assertEqual(len(connector.addresses), 1)
 
+    def test_https_to_http_redirect_downgrade_is_denied_by_default(self) -> None:
+        connector = ScriptedConnector(
+            [
+                response(
+                    "302 Found",
+                    headers={"Location": "http://plain.example/final"},
+                    body=b"",
+                )
+            ]
+        )
+        broker = EgressBroker(
+            profile=NetworkProfile.RESTRICTED_EGRESS,
+            policy=EgressPolicy(
+                enabled=True,
+                allowed_domains={"secure.example", "plain.example"},
+                allowed_methods={"GET"},
+                allowed_ports={443, 80},
+                allow_http=True,
+            ),
+            resolver=public_resolver,
+            connector=connector,
+            ssl_context=PassthroughTLSContext(),  # type: ignore[arg-type]
+        )
+        with self.assertRaises(EgressDenied):
+            broker.request("GET", "https://secure.example/start")
+        self.assertEqual(len(connector.addresses), 1)
+
+    def test_insecure_tls_context_is_rejected(self) -> None:
+        insecure = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        insecure.check_hostname = False
+        insecure.verify_mode = ssl.CERT_NONE
+        with self.assertRaises(ValueError):
+            EgressBroker(
+                profile=NetworkProfile.RESTRICTED_EGRESS,
+                policy=self._http_policy(),
+                ssl_context=insecure,
+            )
+
     def test_sensitive_headers_are_not_forwarded_across_redirect_origins(self) -> None:
         connector = ScriptedConnector(
             [
@@ -293,6 +357,31 @@ class EgressTests(unittest.TestCase):
         self.assertIn(b"Authorization: Bearer secret", connector.requests[0])
         self.assertNotIn(b"Authorization:", connector.requests[1])
         self.assertIn(b"X-Safe: kept", connector.requests[1])
+
+    def test_excessive_dns_answers_are_denied(self) -> None:
+        connector = ScriptedConnector([response()])
+
+        def resolver(host: str, port: int, **_kwargs):
+            return [
+                (
+                    socket.AF_INET,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    (f"8.8.8.{index % 200 + 1}", port),
+                )
+                for index in range(33)
+            ]
+
+        broker = EgressBroker(
+            profile=NetworkProfile.RESTRICTED_EGRESS,
+            policy=self._http_policy(),
+            resolver=resolver,
+            connector=connector,
+        )
+        with self.assertRaises(EgressDenied):
+            broker.request("GET", "http://example.com/")
+        self.assertEqual(connector.addresses, [])
 
     def test_response_size_limit_is_enforced_before_large_read(self) -> None:
         connector = ScriptedConnector(
