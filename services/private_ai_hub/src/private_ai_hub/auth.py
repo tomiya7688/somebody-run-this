@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import hmac
+import logging
 from pathlib import Path
 import secrets
 import time
@@ -19,6 +20,8 @@ _SCRYPT_R = 8
 _SCRYPT_P = 1
 _SCRYPT_DKLEN = 32
 _DUMMY_SALT = b"private-ai-local-auth-dummy-salt-v1"
+
+logger = logging.getLogger(__name__)
 
 
 class AuthenticationError(PermissionError):
@@ -83,6 +86,21 @@ def _session_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _safe_scrypt_parameters(n: object, r: object, p: object, dklen: object) -> bool:
+    values = (n, r, p, dklen)
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+        return False
+    if n < 2**12 or n > 2**18 or n & (n - 1):
+        return False
+    if not 1 <= r <= 32:
+        return False
+    if not 1 <= p <= 8:
+        return False
+    if not 16 <= dklen <= 64:
+        return False
+    return True
+
+
 class LocalAuthProvider:
     provider_id = LOCAL_PROVIDER_ID
 
@@ -144,6 +162,10 @@ class LocalAuthProvider:
             return None
 
         salt, expected_hash, n, r, p, dklen = credential
+        if not _safe_scrypt_parameters(n, r, p, dklen):
+            logger.warning("invalid local credential parameters for user %s", user.id)
+            return None
+
         actual_hash = _derive_password_hash(
             encoded,
             salt=salt,
@@ -259,6 +281,12 @@ class AuthService:
         identifier: str,
         secret: str,
     ) -> LoginResult:
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (organization_id, provider_id, identifier, secret)
+        ):
+            raise AuthenticationError("authentication failed")
+
         provider = self.providers.get(provider_id.strip().casefold())
         if provider is None:
             raise AuthenticationError("authentication failed")
