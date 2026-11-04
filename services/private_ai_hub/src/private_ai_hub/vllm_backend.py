@@ -579,6 +579,10 @@ class OpenAICompatibleUnixClient:
                     if usage is not None:
                         yield StreamDelta(usage=usage)
                     continue
+                if not choices:
+                    if usage is not None:
+                        yield StreamDelta(usage=usage)
+                    continue
 
                 for choice in choices:
                     if not isinstance(choice, dict):
