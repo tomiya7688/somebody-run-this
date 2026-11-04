@@ -108,3 +108,20 @@ Conversation Audit本文には別の `compliance-auditor` 権限が必要です�
 Security event metadataはpassword/token/API key等を保存前にマスクし、イベントはOrganization/stream単位のhash chainで改ざん検知できます。
 
 詳細は `docs/audit.md` を参照してください。
+
+## Network / Egress
+
+既定network profileは `offline` です。
+
+```toml
+[network]
+profile = "offline"
+```
+
+`restricted-egress` に変更しても全通信が許可されるわけではありません。Model ImporterやExtensionごとに専用 `EgressPolicy` とdomain/port/method allowlistが必要です。
+
+Inference WorkerにはEgress Brokerを渡さず、Linuxではnetwork namespace/systemd `PrivateNetwork=yes`/container `--network none` 等でも直接Egressを遮断します。
+
+Egress BrokerはDNS解決後のIPも検証し、loopback、link-local/metadata、multicast、reserved、未許可private networkを拒否します。redirect先も毎回再検証し、別originへAuthorization/Cookieを持ち越しません。
+
+詳細は `docs/network-isolation.md` を参照してください。
