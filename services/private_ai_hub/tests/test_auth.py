@@ -12,7 +12,7 @@ from private_ai_hub.auth import (
 )
 from private_ai_hub.identity import Permission
 from private_ai_hub.identity_store import IdentityStore
-from private_ai_hub.storage import initialize
+from private_ai_hub.storage import connect, initialize
 
 
 PASSWORD = "correct horse battery staple"
@@ -168,6 +168,43 @@ class AuthAndRbacTests(unittest.TestCase):
                 identifier="alice",
                 secret="this password is incorrect",
             )
+
+    def test_session_token_is_not_stored_in_plaintext(self) -> None:
+        _user, provider = self._create_user("alice")
+        service = AuthService(
+            self.store,
+            {provider.provider_id: provider},
+            session_ttl_seconds=3600,
+        )
+        login = service.login(
+            organization_id="acme",
+            provider_id="local",
+            identifier="alice",
+            secret=PASSWORD,
+        )
+        with connect(self.path) as connection:
+            stored = connection.execute(
+                "SELECT token_hash FROM sessions"
+            ).fetchone()[0]
+        self.assertNotEqual(stored, login.session.value)
+        self.assertEqual(len(stored), 64)
+
+    def test_invalid_bootstrap_password_does_not_create_user(self) -> None:
+        other_path = Path(self.temp.name) / "invalid-bootstrap.sqlite3"
+        initialize(other_path)
+        with self.assertRaises(ValueError):
+            bootstrap_local_admin(
+                other_path,
+                organization_id="bootstrap",
+                organization_name="Bootstrap Org",
+                username="root-admin",
+                display_name="Root Admin",
+                password="short",
+            )
+        store = IdentityStore(other_path)
+        self.assertIsNone(
+            store.find_user_by_username("bootstrap", "root-admin")
+        )
 
     def test_bootstrap_admin_creates_admin_without_audit_content_permission(self) -> None:
         other_path = Path(self.temp.name) / "bootstrap.sqlite3"
