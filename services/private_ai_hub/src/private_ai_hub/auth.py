@@ -181,6 +181,15 @@ class LocalAuthProvider:
         return user
 
 
+def _principal_for_user(store: IdentityStore, user: User) -> Principal:
+    return Principal(
+        user=user,
+        permissions=store.permissions_for_user(user.id),
+        group_ids=store.group_ids_for_user(user.id),
+        role_ids=store.role_ids_for_user(user.id),
+    )
+
+
 class SessionManager:
     def __init__(
         self,
@@ -227,10 +236,7 @@ class SessionManager:
         if user is None or not user.enabled:
             return None
 
-        return Principal(
-            user=user,
-            permissions=self.store.permissions_for_user(user.id),
-        )
+        return _principal_for_user(self.store, user)
 
     def revoke(self, token: object) -> None:
         if not isinstance(token, str) or not token:
@@ -303,10 +309,7 @@ class AuthService:
             user,
             provider_id=provider.provider_id,
         )
-        principal = Principal(
-            user=user,
-            permissions=self.store.permissions_for_user(user.id),
-        )
+        principal = _principal_for_user(self.store, user)
         return LoginResult(principal=principal, session=session)
 
     def authenticate_session(self, token: object) -> Principal | None:
