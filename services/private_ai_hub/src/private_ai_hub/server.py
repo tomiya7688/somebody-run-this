@@ -54,8 +54,6 @@ class LoginRateLimiter:
             if len(attempts) >= self.attempts_per_minute:
                 return False
             attempts.append(now)
-            if not attempts:
-                self._attempts.pop(client_key, None)
             return True
 
 
@@ -188,7 +186,8 @@ def make_handler(
 
         def _read_json_object(self) -> dict[str, object] | None:
             content_type = self.headers.get("Content-Type", "")
-            if not content_type.lower().startswith("application/json"):
+            media_type = content_type.split(";", 1)[0].strip().casefold()
+            if media_type != "application/json":
                 self._send_error_json(
                     HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                     "content_type_required",
