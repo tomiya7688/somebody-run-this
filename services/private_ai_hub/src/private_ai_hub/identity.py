@@ -11,6 +11,7 @@ class Permission(StrEnum):
     USER_MANAGE = "user.manage"
     POLICY_READ = "policy.read"
     POLICY_WRITE = "policy.write"
+    MODEL_MANAGE = "model.manage"
     PROJECT_MANAGE = "project.manage"
     SECURITY_AUDIT_READ = "audit.security.read"
     CONVERSATION_AUDIT_READ = "audit.conversation.read"
@@ -29,6 +30,7 @@ BUILTIN_ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.USER_MANAGE,
             Permission.POLICY_READ,
             Permission.POLICY_WRITE,
+            Permission.MODEL_MANAGE,
             Permission.PROJECT_MANAGE,
             Permission.SECURITY_AUDIT_READ,
         }
