@@ -11,6 +11,11 @@ sqlite_path = "./data/private_ai_hub.sqlite3"
 session_ttl_seconds = 43200
 login_attempts_per_minute = 10
 
+[network]
+# offline: no application-managed outbound network capability
+# restricted-egress: only explicit EgressBroker policies may connect outward
+profile = "offline"
+
 [audit]
 security_enabled = true
 conversation_enabled = false
