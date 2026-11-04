@@ -441,6 +441,37 @@ class IdentityStore:
                 (group_id, role_id),
             )
 
+    def group_ids_for_user(self, user_id: str) -> frozenset[str]:
+        with connect(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT group_id
+                FROM group_memberships
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+
+    def role_ids_for_user(self, user_id: str) -> frozenset[str]:
+        with connect(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT role_id
+                FROM user_roles
+                WHERE user_id = ?
+
+                UNION
+
+                SELECT gr.role_id
+                FROM group_roles gr
+                JOIN group_memberships gm ON gm.group_id = gr.group_id
+                WHERE gm.user_id = ?
+                """,
+                (user_id, user_id),
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+
     def permissions_for_user(self, user_id: str) -> frozenset[str]:
         with connect(self.path) as connection:
             rows = connection.execute(
