@@ -328,6 +328,13 @@ class EgressBroker:
         *,
         method: str,
     ) -> tuple[str, str, int, str, tuple[str, ...]]:
+        if not isinstance(url, str) or not url:
+            self._deny("egress URL must be a non-empty string", method=method)
+        if len(url) > 8192:
+            self._deny("egress URL is too long", method=method)
+        if any(ord(character) < 32 or ord(character) == 127 for character in url):
+            self._deny("egress URL contains control characters", method=method)
+
         if self.profile is NetworkProfile.OFFLINE:
             self._deny("network profile is offline", method=method)
         if not self.policy.enabled:
@@ -347,9 +354,20 @@ class EgressBroker:
         host = parsed.hostname
         if host is None:
             self._deny("egress URL has no hostname", method=method, scheme=scheme)
-        host = _normalize_host(host)
+        try:
+            host = _normalize_host(host)
+        except ValueError:
+            self._deny("egress URL hostname is invalid", method=method, scheme=scheme)
 
-        port = parsed.port
+        try:
+            port = parsed.port
+        except ValueError:
+            self._deny(
+                "egress URL contains an invalid port",
+                method=method,
+                host=host,
+                scheme=scheme,
+            )
         if port is None:
             port = 443 if scheme == "https" else 80
 
@@ -568,8 +586,11 @@ class EgressBroker:
         body: bytes | None = None,
     ) -> EgressResponse:
         resolved_method = _normalize_method(method)
-        request_body = body or b""
-        if not isinstance(request_body, bytes):
+        if body is None:
+            request_body = b""
+        elif isinstance(body, bytes):
+            request_body = body
+        else:
             raise EgressDenied("request body must be bytes")
         if len(request_body) > self.policy.max_request_bytes:
             self._deny(
@@ -610,18 +631,20 @@ class EgressBroker:
             old = urlsplit(current_url)
             new_url = urljoin(current_url, location)
             new = urlsplit(new_url)
-            old_port = old.port or (443 if old.scheme.casefold() == "https" else 80)
-            new_port = new.port or (443 if new.scheme.casefold() == "https" else 80)
-            old_origin = (
-                old.scheme.casefold(),
-                _normalize_host(old.hostname or ""),
-                old_port,
-            )
-            new_origin = (
-                new.scheme.casefold(),
-                _normalize_host(new.hostname or ""),
-                new_port,
-            )
+            try:
+                old_port = old.port or (
+                    443 if old.scheme.casefold() == "https" else 80
+                )
+                new_port = new.port or (
+                    443 if new.scheme.casefold() == "https" else 80
+                )
+                old_host = _normalize_host(old.hostname or "")
+                new_host = _normalize_host(new.hostname or "")
+            except (ValueError, UnicodeError) as exc:
+                raise EgressDenied("redirect target is invalid") from exc
+
+            old_origin = (old.scheme.casefold(), old_host, old_port)
+            new_origin = (new.scheme.casefold(), new_host, new_port)
 
             if previous_origin is None:
                 previous_origin = old_origin
