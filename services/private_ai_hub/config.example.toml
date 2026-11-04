@@ -10,3 +10,12 @@ sqlite_path = "./data/private_ai_hub.sqlite3"
 [auth]
 session_ttl_seconds = 43200
 login_attempts_per_minute = 10
+
+[audit]
+security_enabled = true
+conversation_enabled = false
+store_prompt_content = false
+store_response_content = false
+retention_days = 180
+max_metadata_bytes = 16384
+max_content_bytes = 1048576

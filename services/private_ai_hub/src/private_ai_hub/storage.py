@@ -107,6 +107,64 @@ MIGRATIONS: tuple[Migration, ...] = (
         CREATE INDEX sessions_expiry_idx ON sessions(expires_at);
         """,
     ),
+    (
+        3,
+        """
+        CREATE TABLE audit_chain_heads (
+            organization_id TEXT NOT NULL,
+            stream TEXT NOT NULL CHECK (stream IN ('security', 'conversation')),
+            head_hash TEXT NOT NULL,
+            last_event_id INTEGER,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (organization_id, stream)
+        );
+
+        CREATE TABLE audit_chain_anchors (
+            organization_id TEXT NOT NULL,
+            stream TEXT NOT NULL CHECK (stream IN ('security', 'conversation')),
+            anchor_hash TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (organization_id, stream)
+        );
+
+        CREATE TABLE security_audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id TEXT NOT NULL,
+            actor_user_id TEXT,
+            event_type TEXT NOT NULL,
+            occurred_at INTEGER NOT NULL,
+            metadata_json TEXT NOT NULL,
+            previous_hash TEXT NOT NULL,
+            event_hash TEXT NOT NULL UNIQUE
+        );
+
+        CREATE INDEX security_audit_org_time_idx
+            ON security_audit_events(organization_id, occurred_at, id);
+
+        CREATE TABLE conversation_audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            actor_user_id TEXT,
+            project_id TEXT,
+            conversation_id TEXT,
+            event_type TEXT NOT NULL,
+            occurred_at INTEGER NOT NULL,
+            metadata_json TEXT NOT NULL,
+            prompt_content TEXT,
+            response_content TEXT,
+            previous_hash TEXT NOT NULL,
+            event_hash TEXT NOT NULL UNIQUE
+        );
+
+        CREATE INDEX conversation_audit_org_time_idx
+            ON conversation_audit_events(organization_id, occurred_at, id);
+        CREATE INDEX conversation_audit_owner_time_idx
+            ON conversation_audit_events(
+                organization_id, owner_user_id, occurred_at, id
+            );
+        """,
+    ),
 )
 
 

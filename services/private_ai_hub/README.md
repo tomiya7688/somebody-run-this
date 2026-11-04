@@ -90,3 +90,21 @@ built-in `admin` roleはPolicy/User/Project/Security Audit管理権限を持ち�
 認証Provider固有のpassword/credentialはUser domainへ入れません。将来OIDC/LDAP/SAML等を追加しても同じUser/RBACを利用します。
 
 詳細は `docs/auth-rbac.md` を参照してください。
+
+## 監査
+
+Security AuditとConversation Auditは分離しています。
+
+既定値:
+
+- Security Audit: ON
+- Conversation Audit: OFF
+- Prompt本文保存: OFF
+- Response本文保存: OFF
+
+`admin` はSecurity Auditを読めますが、Conversation Audit本文は読めません。
+Conversation Audit本文には別の `compliance-auditor` 権限が必要です。
+
+Security event metadataはpassword/token/API key等を保存前にマスクし、イベントはOrganization/stream単位のhash chainで改ざん検知できます。
+
+詳細は `docs/audit.md` を参照してください。
