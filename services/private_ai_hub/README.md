@@ -151,3 +151,26 @@ vLLM APIをUser/Clientへ直接公開しません。Gateway内部から `/v1/mod
 - `docs/security/vllm-0.33.0-review-2026-11-04.md`
 
 vLLM更新時はSecurity Rulesに従い、必ずその時点の最新Security Advisory等を再調査してください。
+
+## Model Registry
+
+モデルCatalogとユーザー利用許可は別管理です。
+
+新しく登録・発見したモデルは自動許可されません。
+
+ユーザーが使えるモデルは:
+
+```text
+enabled
+∩ ready
+∩ Organization allowlist
+∩ Group / Project policy
+```
+
+です。
+
+管理者が1モデルだけ許可すれば、ユーザー一覧にもその1モデルだけが出ます。Provider/runtimeが知っているmodel idを直接APIへ指定してもallowlistは回避できません。
+
+Catalog/allowlist変更には `model.manage` が必要です。
+
+詳細は `docs/model-registry.md` を参照してください。
