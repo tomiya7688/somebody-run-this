@@ -287,6 +287,35 @@ class ModelRegistryTests(unittest.TestCase):
         self.assertEqual(first.revision, 1)
         self.assertEqual(second.revision, 2)
 
+    def test_failed_allowlist_update_rolls_back_previous_policy(self) -> None:
+        self._register_ready("luna")
+        first = self.registry.configure_allowlist(
+            self.admin_principal,
+            scope_type="organization",
+            scope_id="acme",
+            allowed_model_ids={"luna"},
+            default_model_id="luna",
+        )
+
+        with self.assertRaises(ModelRegistryError):
+            self.registry.configure_allowlist(
+                self.admin_principal,
+                scope_type="organization",
+                scope_id="acme",
+                allowed_model_ids={"luna", "not-registered"},
+            )
+
+        after = self.registry.get_policy_scope(
+            "acme",
+            ModelPolicyScopeType.ORGANIZATION,
+            "acme",
+        )
+        self.assertIsNotNone(after)
+        assert after is not None
+        self.assertEqual(after.revision, first.revision)
+        self.assertEqual(after.allowed_model_ids, frozenset({"luna"}))
+        self.assertEqual(after.default_model_id, "luna")
+
     def test_default_model_must_be_in_same_scope_allowlist(self) -> None:
         self._register_ready("luna")
         self._register_ready("sol")
