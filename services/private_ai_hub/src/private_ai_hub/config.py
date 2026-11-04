@@ -31,6 +31,11 @@ class AuthConfig:
 
 
 @dataclass(frozen=True)
+class NetworkConfig:
+    profile: str = "offline"
+
+
+@dataclass(frozen=True)
 class AuditConfig:
     security_enabled: bool = True
     conversation_enabled: bool = False
@@ -46,6 +51,7 @@ class AppConfig:
     server: ServerConfig = ServerConfig()
     storage: StorageConfig = StorageConfig()
     auth: AuthConfig = AuthConfig()
+    network: NetworkConfig = NetworkConfig()
     audit: AuditConfig = AuditConfig()
 
 
@@ -115,11 +121,13 @@ def load_config(
     server_raw = raw.get("server", {})
     storage_raw = raw.get("storage", {})
     auth_raw = raw.get("auth", {})
+    network_raw = raw.get("network", {})
     audit_raw = raw.get("audit", {})
     for section_name, section in (
         ("server", server_raw),
         ("storage", storage_raw),
         ("auth", auth_raw),
+        ("network", network_raw),
         ("audit", audit_raw),
     ):
         if not isinstance(section, dict):
@@ -146,6 +154,11 @@ def load_config(
     login_attempts_raw = env_map.get(
         "PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE",
         auth_raw.get("login_attempts_per_minute", 10),
+    )
+
+    network_profile_raw = env_map.get(
+        "PRIVATE_AI_NETWORK_PROFILE",
+        network_raw.get("profile", "offline"),
     )
 
     security_enabled_raw = env_map.get(
@@ -218,6 +231,14 @@ def load_config(
         maximum=1000,
     )
 
+    if not isinstance(network_profile_raw, str):
+        raise ConfigError("network.profile must be a string")
+    network_profile = network_profile_raw.strip().casefold()
+    if network_profile not in {"offline", "restricted-egress"}:
+        raise ConfigError(
+            "network.profile must be 'offline' or 'restricted-egress'"
+        )
+
     audit = AuditConfig(
         security_enabled=_as_bool(
             security_enabled_raw,
@@ -267,5 +288,6 @@ def load_config(
             session_ttl_seconds=session_ttl_seconds,
             login_attempts_per_minute=login_attempts_per_minute,
         ),
+        network=NetworkConfig(profile=network_profile),
         audit=audit,
     )
