@@ -26,9 +26,9 @@ MIGRATIONS: tuple[Migration, ...] = (
 def connect(path: Path | str) -> sqlite3.Connection:
     database_path = Path(path)
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path)
+    connection = sqlite3.connect(database_path, timeout=30.0)
+    connection.execute("PRAGMA busy_timeout = 30000")
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
     return connection
 
 
@@ -37,12 +37,14 @@ def _connect_read_only(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(
         f"{resolved.as_uri()}?mode=ro",
         uri=True,
+        timeout=5.0,
     )
+    connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA query_only = ON")
     return connection
 
 
-def _ensure_migration_table(connection: sqlite3.Connection) -> None:
+def _create_migration_table(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -51,7 +53,6 @@ def _ensure_migration_table(connection: sqlite3.Connection) -> None:
         )
         """
     )
-    connection.commit()
 
 
 def _read_current_version(connection: sqlite3.Connection) -> int:
@@ -62,8 +63,12 @@ def _read_current_version(connection: sqlite3.Connection) -> int:
 
 
 def current_version(connection: sqlite3.Connection) -> int:
-    _ensure_migration_table(connection)
-    return _read_current_version(connection)
+    try:
+        return _read_current_version(connection)
+    except sqlite3.OperationalError as exc:
+        if "no such table: schema_migrations" in str(exc):
+            return 0
+        raise
 
 
 def target_version(migrations: Iterable[Migration] = MIGRATIONS) -> int:
@@ -88,28 +93,34 @@ def migrate(
     connection: sqlite3.Connection,
     migrations: Iterable[Migration] = MIGRATIONS,
 ) -> int:
-    _ensure_migration_table(connection)
+    try:
+        # Serialize schema creation, applied-version checks, migration SQL,
+        # and version recording under one write transaction. A concurrent
+        # initializer waits on BEGIN IMMEDIATE, then observes committed state.
+        connection.execute("BEGIN IMMEDIATE")
+        _create_migration_table(connection)
 
-    for version, sql in sorted(migrations, key=lambda item: item[0]):
-        try:
-            connection.execute("BEGIN IMMEDIATE")
+        for version, sql in sorted(migrations, key=lambda item: item[0]):
             already_applied = connection.execute(
                 "SELECT 1 FROM schema_migrations WHERE version = ?",
                 (version,),
             ).fetchone()
-            if already_applied is None:
-                for statement in _iter_statements(sql):
-                    connection.execute(statement)
-                connection.execute(
-                    "INSERT INTO schema_migrations(version) VALUES (?)",
-                    (version,),
-                )
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
+            if already_applied is not None:
+                continue
 
-    return current_version(connection)
+            for statement in _iter_statements(sql):
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations(version) VALUES (?)",
+                (version,),
+            )
+
+        version = _read_current_version(connection)
+        connection.commit()
+        return version
+    except Exception:
+        connection.rollback()
+        raise
 
 
 def initialize(path: Path | str) -> int:
