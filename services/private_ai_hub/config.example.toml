@@ -6,3 +6,7 @@ max_connections = 64
 
 [storage]
 sqlite_path = "./data/private_ai_hub.sqlite3"
+
+[auth]
+session_ttl_seconds = 43200
+login_attempts_per_minute = 10
