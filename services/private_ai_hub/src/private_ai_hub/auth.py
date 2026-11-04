@@ -346,6 +346,10 @@ def bootstrap_local_admin(
     display_name: str | None,
     password: str,
 ) -> User:
+    # Validate before creating any identity rows so invalid input does not
+    # leave a user without a credential.
+    _password_bytes(password)
+
     store = IdentityStore(database_path)
 
     organization = store.get_organization(organization_id)
