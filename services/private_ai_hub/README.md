@@ -44,3 +44,20 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 - Agentの実行場所は Local Runner（ユーザーPC）と Managed Runner（会社管理Worker）を明確に分けます。
 
 詳細は `docs/architecture.md` と `docs/agent-execution-modes.md` を参照してください。
+
+## Policy Engine
+
+階層Policy Engineは `src/private_ai_hub/policy_engine.py` にあります。
+
+- Organization / Group-Role / Project policyをintersection
+- User requestは管理者policyを広げない
+- 未設定Featureはdefault disabled
+- model/Extension等のchoiceはdefault deny
+- 数値上限は最も厳しい範囲を適用
+- runtime/model capabilityも上限として適用
+- policy conflictはfail-closed
+- effective decisionには理由とsource revisionを含める
+
+詳細は `docs/policy-engine.md` を参照してください。
+
+認証済みユーザー向けHTTP effective-policy endpointは、RBAC/認証 (#23) を実装した後に公開します。Policy判定ロジック自体はHTTPから独立させ、通常Chat、Agent App、管理UIのすべてから同じEngineを使います。
