@@ -17,6 +17,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.storage.sqlite_path, Path("./data/private_ai_hub.sqlite3"))
         self.assertEqual(config.auth.session_ttl_seconds, 43200)
         self.assertEqual(config.auth.login_attempts_per_minute, 10)
+        self.assertEqual(config.network.profile, "offline")
         self.assertTrue(config.audit.security_enabled)
         self.assertFalse(config.audit.conversation_enabled)
         self.assertFalse(config.audit.store_prompt_content)
@@ -48,6 +49,7 @@ class ConfigTests(unittest.TestCase):
                     "PRIVATE_AI_MAX_CONNECTIONS": "48",
                     "PRIVATE_AI_SQLITE_PATH": "./override.db",
                     "PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "25",
+                    "PRIVATE_AI_NETWORK_PROFILE": "offline",
                     "PRIVATE_AI_AUDIT_CONVERSATION_ENABLED": "false",
                     "PRIVATE_AI_AUDIT_RETENTION_DAYS": "30",
                 },
@@ -59,6 +61,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.storage.sqlite_path, Path("./override.db"))
             self.assertEqual(config.auth.session_ttl_seconds, 7200)
             self.assertEqual(config.auth.login_attempts_per_minute, 25)
+            self.assertEqual(config.network.profile, "offline")
             self.assertTrue(config.audit.security_enabled)
             self.assertFalse(config.audit.conversation_enabled)
             self.assertTrue(config.audit.store_prompt_content)
@@ -83,6 +86,10 @@ class ConfigTests(unittest.TestCase):
             load_config(env={"PRIVATE_AI_SESSION_TTL_SECONDS": "10"})
         with self.assertRaises(ConfigError):
             load_config(env={"PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "0"})
+
+    def test_rejects_invalid_network_profile(self) -> None:
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_NETWORK_PROFILE": "open-internet"})
 
     def test_rejects_invalid_audit_settings(self) -> None:
         with self.assertRaises(ConfigError):

@@ -1,0 +1,35 @@
+[Unit]
+Description=Private AI Inference Worker (no egress example)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=private-ai-inference
+Group=private-ai-inference
+
+# Replace this with the worker command introduced by the inference backend.
+ExecStart=/opt/private-ai/bin/private-ai-inference-worker
+
+# The inference worker must not have normal network access.
+PrivateNetwork=yes
+
+# Prefer Unix-domain IPC between gateway and inference worker on Linux.
+RestrictAddressFamilies=AF_UNIX
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+
+# Example paths; adjust to the deployment.
+ReadOnlyPaths=/var/lib/private-ai/models
+ReadWritePaths=/var/lib/private-ai/inference
+
+[Install]
+WantedBy=multi-user.target
