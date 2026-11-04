@@ -75,6 +75,8 @@ class Role:
 class Principal:
     user: User
     permissions: frozenset[str]
+    group_ids: frozenset[str] = frozenset()
+    role_ids: frozenset[str] = frozenset()
 
     def has_permission(self, permission: Permission | str) -> bool:
         return str(permission) in self.permissions
