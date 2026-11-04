@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
-import hmac
 import itertools
 import json
 from pathlib import Path
@@ -725,10 +724,7 @@ class AuditService:
                     if str(row[4]) != current_hash:
                         return False
                     expected = _hash_payload(current_hash, payload)
-                    if not hmac.compare_digest(
-                        expected.encode("ascii"),
-                        str(row[5]).encode("ascii"),
-                    ):
+                    if expected != str(row[5]):
                         return False
                     current_hash = expected
             else:
@@ -760,10 +756,7 @@ class AuditService:
                     if str(row[9]) != current_hash:
                         return False
                     expected = _hash_payload(current_hash, payload)
-                    if not hmac.compare_digest(
-                        expected.encode("ascii"),
-                        str(row[10]).encode("ascii"),
-                    ):
+                    if expected != str(row[10]):
                         return False
                     current_hash = expected
 
