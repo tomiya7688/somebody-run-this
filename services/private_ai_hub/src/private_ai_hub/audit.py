@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
 import hmac
+import itertools
 import json
 from pathlib import Path
 import time
@@ -153,7 +154,7 @@ def _redact_value(value: object, *, depth: int = 0) -> object:
 
     if isinstance(value, Mapping):
         redacted: dict[str, object] = {}
-        for raw_key, raw_value in list(value.items())[:256]:
+        for raw_key, raw_value in itertools.islice(value.items(), 256):
             key = str(raw_key)
             redacted[key] = (
                 _REDACTED
@@ -167,7 +168,7 @@ def _redact_value(value: object, *, depth: int = 0) -> object:
     if isinstance(value, (list, tuple)):
         items = [
             _redact_value(item, depth=depth + 1)
-            for item in list(value)[:256]
+            for item in value[:256]
         ]
         if len(value) > 256:
             items.append(f"[OMITTED: {len(value) - 256} more audit items]")
@@ -227,6 +228,16 @@ def _bounded_content(
     if len(content.encode("utf-8")) > maximum_bytes:
         return _OMITTED_CONTENT
     return content
+
+
+def _timestamp(value: object | None) -> int:
+    if value is None:
+        return int(time.time())
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("audit timestamp must be an integer")
+    if value < 0:
+        raise ValueError("audit timestamp must be >= 0")
+    return value
 
 
 def _hash_payload(previous_hash: str, payload: Mapping[str, object]) -> str:
@@ -376,7 +387,7 @@ class AuditService:
             maximum=128,
         )
         event = _non_empty(event_type, field="event_type", maximum=128)
-        timestamp = int(time.time()) if occurred_at is None else int(occurred_at)
+        timestamp = _timestamp(occurred_at)
         metadata_json = _metadata_json(
             metadata,
             maximum_bytes=self.settings.max_metadata_bytes,
@@ -495,7 +506,7 @@ class AuditService:
             maximum=128,
         )
         event = _non_empty(event_type, field="event_type", maximum=128)
-        timestamp = int(time.time()) if occurred_at is None else int(occurred_at)
+        timestamp = _timestamp(occurred_at)
         metadata_json = _metadata_json(
             metadata,
             maximum_bytes=self.settings.max_metadata_bytes,
@@ -847,7 +858,7 @@ class AuditService:
         if self.settings.retention_days == 0:
             return 0
 
-        timestamp = int(time.time()) if now is None else int(now)
+        timestamp = _timestamp(now)
         cutoff = timestamp - self.settings.retention_days * 24 * 60 * 60
 
         with connect(self.database_path) as connection:
