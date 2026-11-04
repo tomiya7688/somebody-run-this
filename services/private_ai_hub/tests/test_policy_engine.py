@@ -64,6 +64,24 @@ class PolicyEngineTests(unittest.TestCase):
         self.assertTrue(decision.permitted)
         self.assertFalse(decision.effective)
 
+    def test_project_cannot_enable_feature_missing_from_root_policy(self) -> None:
+        layers = (
+            PolicyLayer(
+                name="organization",
+                revision=1,
+            ),
+            PolicyLayer(
+                name="project",
+                revision=2,
+                features={"web_search": FeatureMode.OPTIONAL},
+            ),
+        )
+        decision = self.engine.resolve_feature(
+            "web_search", True, layers
+        )
+        self.assertTrue(decision.permitted)
+        self.assertFalse(decision.effective)
+
     def test_conflicting_forced_feature_modes_fail_closed(self) -> None:
         layers = (
             PolicyLayer(
@@ -205,6 +223,27 @@ class PolicyEngineTests(unittest.TestCase):
         )
         self.assertFalse(decision.permitted)
         self.assertEqual(decision.allowed_values, ("luna",))
+
+    def test_project_allowlist_cannot_replace_missing_root_allowlist(self) -> None:
+        layers = (
+            PolicyLayer(
+                name="organization",
+                revision=1,
+            ),
+            PolicyLayer(
+                name="project",
+                revision=2,
+                allowed_values={"model": {"luna"}},
+            ),
+        )
+        decision = self.engine.resolve_choice(
+            "model",
+            "luna",
+            layers,
+            available_values={"luna"},
+        )
+        self.assertFalse(decision.permitted)
+        self.assertEqual(decision.allowed_values, ())
 
     def test_choice_is_default_denied_without_admin_allowlist(self) -> None:
         decision = self.engine.resolve_choice(
