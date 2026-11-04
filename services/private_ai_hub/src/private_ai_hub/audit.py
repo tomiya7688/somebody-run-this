@@ -683,6 +683,88 @@ class AuditService:
         ).fetchone()
         return _ZERO_HASH if row is None else str(row[0])
 
+    def _verify_chain_on_connection(
+        self,
+        connection,
+        organization: str,
+        resolved_stream: AuditStream,
+    ) -> bool:
+        current_hash = self._anchor_hash(
+            connection,
+            organization,
+            resolved_stream,
+        )
+
+        if resolved_stream is AuditStream.SECURITY:
+            rows = connection.execute(
+                """
+                SELECT actor_user_id, event_type, occurred_at,
+                       metadata_json, previous_hash, event_hash
+                FROM security_audit_events
+                WHERE organization_id = ?
+                ORDER BY id
+                """,
+                (organization,),
+            ).fetchall()
+            for row in rows:
+                payload = _security_payload(
+                    organization_id=organization,
+                    actor_user_id=None if row[0] is None else str(row[0]),
+                    event_type=str(row[1]),
+                    occurred_at=int(row[2]),
+                    metadata_json=str(row[3]),
+                )
+                if str(row[4]) != current_hash:
+                    return False
+                expected = _hash_payload(current_hash, payload)
+                if expected != str(row[5]):
+                    return False
+                current_hash = expected
+        else:
+            rows = connection.execute(
+                """
+                SELECT owner_user_id, actor_user_id, project_id,
+                       conversation_id, event_type, occurred_at,
+                       metadata_json, prompt_content, response_content,
+                       previous_hash, event_hash
+                FROM conversation_audit_events
+                WHERE organization_id = ?
+                ORDER BY id
+                """,
+                (organization,),
+            ).fetchall()
+            for row in rows:
+                payload = _conversation_payload(
+                    organization_id=organization,
+                    owner_user_id=str(row[0]),
+                    actor_user_id=None if row[1] is None else str(row[1]),
+                    project_id=None if row[2] is None else str(row[2]),
+                    conversation_id=None if row[3] is None else str(row[3]),
+                    event_type=str(row[4]),
+                    occurred_at=int(row[5]),
+                    metadata_json=str(row[6]),
+                    prompt_content=None if row[7] is None else str(row[7]),
+                    response_content=None if row[8] is None else str(row[8]),
+                )
+                if str(row[9]) != current_hash:
+                    return False
+                expected = _hash_payload(current_hash, payload)
+                if expected != str(row[10]):
+                    return False
+                current_hash = expected
+
+        head = connection.execute(
+            """
+            SELECT head_hash
+            FROM audit_chain_heads
+            WHERE organization_id = ? AND stream = ?
+            """,
+            (organization, resolved_stream.value),
+        ).fetchone()
+        if head is None:
+            return not rows and current_hash == _ZERO_HASH
+        return str(head[0]) == current_hash
+
     def verify_chain(
         self,
         organization_id: str,
@@ -696,81 +778,11 @@ class AuditService:
         resolved_stream = AuditStream(stream)
 
         with connect(self.database_path) as connection:
-            current_hash = self._anchor_hash(
+            return self._verify_chain_on_connection(
                 connection,
                 organization,
                 resolved_stream,
             )
-
-            if resolved_stream is AuditStream.SECURITY:
-                rows = connection.execute(
-                    """
-                    SELECT actor_user_id, event_type, occurred_at,
-                           metadata_json, previous_hash, event_hash
-                    FROM security_audit_events
-                    WHERE organization_id = ?
-                    ORDER BY id
-                    """,
-                    (organization,),
-                ).fetchall()
-                for row in rows:
-                    payload = _security_payload(
-                        organization_id=organization,
-                        actor_user_id=None if row[0] is None else str(row[0]),
-                        event_type=str(row[1]),
-                        occurred_at=int(row[2]),
-                        metadata_json=str(row[3]),
-                    )
-                    if str(row[4]) != current_hash:
-                        return False
-                    expected = _hash_payload(current_hash, payload)
-                    if expected != str(row[5]):
-                        return False
-                    current_hash = expected
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT owner_user_id, actor_user_id, project_id,
-                           conversation_id, event_type, occurred_at,
-                           metadata_json, prompt_content, response_content,
-                           previous_hash, event_hash
-                    FROM conversation_audit_events
-                    WHERE organization_id = ?
-                    ORDER BY id
-                    """,
-                    (organization,),
-                ).fetchall()
-                for row in rows:
-                    payload = _conversation_payload(
-                        organization_id=organization,
-                        owner_user_id=str(row[0]),
-                        actor_user_id=None if row[1] is None else str(row[1]),
-                        project_id=None if row[2] is None else str(row[2]),
-                        conversation_id=None if row[3] is None else str(row[3]),
-                        event_type=str(row[4]),
-                        occurred_at=int(row[5]),
-                        metadata_json=str(row[6]),
-                        prompt_content=None if row[7] is None else str(row[7]),
-                        response_content=None if row[8] is None else str(row[8]),
-                    )
-                    if str(row[9]) != current_hash:
-                        return False
-                    expected = _hash_payload(current_hash, payload)
-                    if expected != str(row[10]):
-                        return False
-                    current_hash = expected
-
-            head = connection.execute(
-                """
-                SELECT head_hash
-                FROM audit_chain_heads
-                WHERE organization_id = ? AND stream = ?
-                """,
-                (organization, resolved_stream.value),
-            ).fetchone()
-            if head is None:
-                return not rows and current_hash == _ZERO_HASH
-            return str(head[0]) == current_hash
 
     def _purge_stream_prefix(
         self,
@@ -869,6 +881,21 @@ class AuditService:
                 }
                 deleted = 0
                 for organization_id in organizations:
+                    for stream in (
+                        AuditStream.SECURITY,
+                        AuditStream.CONVERSATION,
+                    ):
+                        if not self._verify_chain_on_connection(
+                            connection,
+                            organization_id,
+                            stream,
+                        ):
+                            raise RuntimeError(
+                                "refusing audit retention purge because "
+                                f"{stream.value} chain verification failed "
+                                f"for organization {organization_id!r}"
+                            )
+
                     deleted += self._purge_stream_prefix(
                         connection,
                         organization_id=organization_id,
