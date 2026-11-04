@@ -4,6 +4,7 @@ import argparse
 import getpass
 from pathlib import Path
 
+from .audit import AuditSettings
 from .auth import bootstrap_local_admin
 from .config import ConfigError, load_config
 from .server import build_server
@@ -87,6 +88,15 @@ def main() -> int:
         request_timeout_seconds=config.server.request_timeout_seconds,
         session_ttl_seconds=config.auth.session_ttl_seconds,
         login_attempts_per_minute=config.auth.login_attempts_per_minute,
+        audit_settings=AuditSettings(
+            security_enabled=config.audit.security_enabled,
+            conversation_enabled=config.audit.conversation_enabled,
+            store_prompt_content=config.audit.store_prompt_content,
+            store_response_content=config.audit.store_response_content,
+            retention_days=config.audit.retention_days,
+            max_metadata_bytes=config.audit.max_metadata_bytes,
+            max_content_bytes=config.audit.max_content_bytes,
+        ),
     )
     try:
         server.serve_forever()
