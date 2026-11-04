@@ -125,3 +125,29 @@ Inference WorkerにはEgress Brokerを渡さず、Linuxではnetwork namespace/s
 Egress BrokerはDNS解決後のIPも検証し、loopback、link-local/metadata、multicast、reserved、未許可private networkを拒否します。redirect先も毎回再検証し、別originへAuthorization/Cookieを持ち越しません。
 
 詳細は `docs/network-isolation.md` を参照してください。
+
+## Inference Backend
+
+共通契約は `src/private_ai_hub/inference.py`、最初の実backendは `src/private_ai_hub/vllm_backend.py` です。
+
+初期runtimeは **vLLM 0.33.0のみ**をreview済みとして許可します。
+
+- vLLMをPrivateAI processへimportしない
+- Linux別process
+- private Unix domain socketのみ
+- Model Store内local pathのみ
+- `--no-trust-remote-code`
+- `--language-model-only`
+- vLLM plugins無効
+- Hub offline
+- request/output logging無効
+- `/usr/bin/unshare --net --` でWorker direct egressを禁止
+- versionが0.33.0と完全一致しなければ起動拒否
+
+vLLM APIをUser/Clientへ直接公開しません。Gateway内部から `/v1/models` と `/v1/chat/completions` だけをUnix socket越しに使います。
+
+詳細:
+- `docs/inference-backend.md`
+- `docs/security/vllm-0.33.0-review-2026-11-04.md`
+
+vLLM更新時はSecurity Rulesに従い、必ずその時点の最新Security Advisory等を再調査してください。
