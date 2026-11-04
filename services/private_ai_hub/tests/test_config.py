@@ -17,6 +17,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.storage.sqlite_path, Path("./data/private_ai_hub.sqlite3"))
         self.assertEqual(config.auth.session_ttl_seconds, 43200)
         self.assertEqual(config.auth.login_attempts_per_minute, 10)
+        self.assertTrue(config.audit.security_enabled)
+        self.assertFalse(config.audit.conversation_enabled)
+        self.assertFalse(config.audit.store_prompt_content)
+        self.assertFalse(config.audit.store_response_content)
+        self.assertEqual(config.audit.retention_days, 180)
 
     def test_toml_and_environment_override(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -26,7 +31,14 @@ class ConfigTests(unittest.TestCase):
                 'request_timeout_seconds = 20\nmax_connections = 32\n'
                 '[storage]\nsqlite_path = "./state.db"\n'
                 '[auth]\nsession_ttl_seconds = 7200\n'
-                'login_attempts_per_minute = 20\n',
+                'login_attempts_per_minute = 20\n'
+                '[audit]\nsecurity_enabled = true\n'
+                'conversation_enabled = true\n'
+                'store_prompt_content = true\n'
+                'store_response_content = false\n'
+                'retention_days = 90\n'
+                'max_metadata_bytes = 32768\n'
+                'max_content_bytes = 2097152\n',
                 encoding="utf-8",
             )
             config = load_config(
@@ -36,6 +48,8 @@ class ConfigTests(unittest.TestCase):
                     "PRIVATE_AI_MAX_CONNECTIONS": "48",
                     "PRIVATE_AI_SQLITE_PATH": "./override.db",
                     "PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "25",
+                    "PRIVATE_AI_AUDIT_CONVERSATION_ENABLED": "false",
+                    "PRIVATE_AI_AUDIT_RETENTION_DAYS": "30",
                 },
             )
             self.assertEqual(config.server.host, "0.0.0.0")
@@ -45,6 +59,13 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.storage.sqlite_path, Path("./override.db"))
             self.assertEqual(config.auth.session_ttl_seconds, 7200)
             self.assertEqual(config.auth.login_attempts_per_minute, 25)
+            self.assertTrue(config.audit.security_enabled)
+            self.assertFalse(config.audit.conversation_enabled)
+            self.assertTrue(config.audit.store_prompt_content)
+            self.assertFalse(config.audit.store_response_content)
+            self.assertEqual(config.audit.retention_days, 30)
+            self.assertEqual(config.audit.max_metadata_bytes, 32768)
+            self.assertEqual(config.audit.max_content_bytes, 2097152)
 
     def test_rejects_invalid_port(self) -> None:
         with self.assertRaises(ConfigError):
@@ -62,6 +83,14 @@ class ConfigTests(unittest.TestCase):
             load_config(env={"PRIVATE_AI_SESSION_TTL_SECONDS": "10"})
         with self.assertRaises(ConfigError):
             load_config(env={"PRIVATE_AI_LOGIN_ATTEMPTS_PER_MINUTE": "0"})
+
+    def test_rejects_invalid_audit_settings(self) -> None:
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_AUDIT_SECURITY_ENABLED": "maybe"})
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_AUDIT_RETENTION_DAYS": "5000"})
+        with self.assertRaises(ConfigError):
+            load_config(env={"PRIVATE_AI_AUDIT_MAX_METADATA_BYTES": "1"})
 
     def test_unreadable_config_path_is_config_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
