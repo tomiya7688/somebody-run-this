@@ -7,14 +7,13 @@ import logging
 import os
 from pathlib import Path
 import re
-import secrets
 import signal
 import socket
 import stat
 import subprocess
 import sys
 import time
-from typing import Iterator, Mapping, Sequence
+from typing import Iterator, Mapping
 
 from .inference import (
     BackendState,
@@ -302,15 +301,52 @@ def inspect_vllm_runtime(
     return RuntimeInspection(version=version, executable=resolved)
 
 
+def _reviewed_isolation_prefix(prefix: tuple[str, ...]) -> tuple[str, ...]:
+    if len(prefix) != 3 or prefix[1:] != ("--net", "--"):
+        raise RuntimeSecurityError(
+            "vLLM worker isolation must use exactly: unshare --net --"
+        )
+    launcher = Path(prefix[0])
+    if not launcher.is_absolute() or launcher.name != "unshare":
+        raise RuntimeSecurityError(
+            "vLLM worker isolation launcher must be an absolute unshare path"
+        )
+    return prefix
+
+
+def _inspect_isolation_launcher(prefix: tuple[str, ...]) -> tuple[str, ...]:
+    reviewed = _reviewed_isolation_prefix(prefix)
+    try:
+        resolved = Path(reviewed[0]).resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeSecurityError("unshare launcher is unavailable") from exc
+    if resolved != Path("/usr/bin/unshare"):
+        raise RuntimeSecurityError(
+            "only the reviewed /usr/bin/unshare launcher is accepted"
+        )
+    info = os.stat(resolved)
+    if not stat.S_ISREG(info.st_mode) or not os.access(resolved, os.X_OK):
+        raise RuntimeSecurityError("unshare launcher is not executable")
+    if hasattr(info, "st_uid") and info.st_uid != 0:
+        raise RuntimeSecurityError("unshare launcher must be root-owned")
+    return (str(resolved), "--net", "--")
+
+
 def build_vllm_command(
     config: VllmBackendConfig,
     *,
     executable: Path,
     model_path: Path,
     socket_path: Path,
+    isolation_prefix: tuple[str, ...] | None = None,
 ) -> list[str]:
+    prefix = (
+        _reviewed_isolation_prefix(config.isolation_prefix)
+        if isolation_prefix is None
+        else isolation_prefix
+    )
     command = [
-        *config.isolation_prefix,
+        *prefix,
         str(executable),
         "serve",
         str(model_path),
@@ -644,6 +680,9 @@ class VllmBackend:
         self._require_linux()
         runtime_dir = _prepare_private_directory(self.config.runtime_dir)
         runtime_home = _prepare_private_directory(runtime_dir / "home")
+        isolation_prefix = _inspect_isolation_launcher(
+            self.config.isolation_prefix
+        )
         inspection = inspect_vllm_runtime(
             self.config.executable,
             base_environment=self._base_environment,
@@ -658,7 +697,14 @@ class VllmBackend:
             base_environment=self._base_environment,
             runtime_home=runtime_home,
         )
-        return inspection, model_path, socket_path, runtime_dir, environment
+        return (
+            inspection,
+            model_path,
+            socket_path,
+            runtime_dir,
+            environment,
+            isolation_prefix,
+        )
 
     def start(self) -> None:
         if self._state is not BackendState.STOPPED:
@@ -668,14 +714,20 @@ class VllmBackend:
         self._state = BackendState.STARTING
 
         try:
-            inspection, model_path, socket_path, runtime_dir, environment = (
-                self._prepare()
-            )
+            (
+                inspection,
+                model_path,
+                socket_path,
+                runtime_dir,
+                environment,
+                isolation_prefix,
+            ) = self._prepare()
             command = build_vllm_command(
                 self.config,
                 executable=inspection.executable,
                 model_path=model_path,
                 socket_path=socket_path,
+                isolation_prefix=isolation_prefix,
             )
 
             log_path = runtime_dir / "worker.log"
