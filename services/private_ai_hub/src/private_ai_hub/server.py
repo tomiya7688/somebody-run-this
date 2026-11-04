@@ -42,12 +42,26 @@ class LoginRateLimiter:
         self.attempts_per_minute = attempts_per_minute
         self._clock = clock
         self._attempts: dict[str, deque[float]] = defaultdict(deque)
+        self._last_cleanup = 0.0
         self._lock = threading.Lock()
+
+    def _cleanup_locked(self, now: float) -> None:
+        if now - self._last_cleanup < 60.0:
+            return
+        cutoff = now - 60.0
+        for key in tuple(self._attempts):
+            attempts = self._attempts[key]
+            while attempts and attempts[0] <= cutoff:
+                attempts.popleft()
+            if not attempts:
+                self._attempts.pop(key, None)
+        self._last_cleanup = now
 
     def allow(self, client_key: str) -> bool:
         now = float(self._clock())
         cutoff = now - 60.0
         with self._lock:
+            self._cleanup_locked(now)
             attempts = self._attempts[client_key]
             while attempts and attempts[0] <= cutoff:
                 attempts.popleft()
