@@ -14,6 +14,9 @@ v1では以下のような複数layerを同じ方法で合成できる。
 - Group / Role
 - Project
 
+**Organizationをroot policyとして扱う。**
+rootで明示的に許可されていないFeatureやmodel/Extensionを、GroupやProjectだけで新しく有効化することはできない。
+
 Userはpolicy layerではなく「request」を出す側として扱う。
 
 各layerはrevisionを持ち、effective policy snapshotにsource revisionを残す。
@@ -40,7 +43,8 @@ effective: off
 
 `required` と `disabled` のように許可集合が空になる設定競合は、黙って片方を優先せず `policy_conflict` としてfail-closedする。
 
-未設定Featureは既定で `disabled` とする。
+Organization root policyで未設定のFeatureは既定で `disabled` とする。
+Group/Projectが `optional` や `required` を指定しても、このdefault-denyを広げることはできない。
 
 モデルやruntimeがそのFeature capabilityを持たない場合も、Policy Engineがeffective値を制限する。
 
@@ -89,7 +93,8 @@ User-visible/effective:
 
 Provider/runtimeがmodelを認識していることは利用許可を意味しない。
 
-choiceは既定でdefault-denyとするため、管理者allowlistがない新規model/Extensionは自動公開しない。
+choiceは既定でdefault-denyとするため、Organization root allowlistがない新規model/Extensionは自動公開しない。
+Projectだけにallowlistが存在してもrootの未許可を上書きできない。
 
 ## Explanation
 
